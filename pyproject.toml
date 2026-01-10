@@ -1,0 +1,36 @@
+[project]
+name = "onyx-database"
+version = "0.0.1"
+description = "Python client SDK for Onyx Cloud Database (builder-pattern API, schema tools, CLI)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Onyx Dev Tools" }
+]
+dependencies = [
+]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Intended Audience :: Developers",
+  "Topic :: Database",
+  "Topic :: Software Development :: Libraries",
+]
+keywords = ["onyx", "database", "sdk", "query", "codegen", "cli"]
+
+[project.urls]
+Homepage = "https://onyx.dev"
+Repository = "https://github.com/OnyxDevTools/onyx-database-python"
+Documentation = "https://onyx.dev/documentation/"
+
+[project.scripts]
+onyx-py = "onyx_database.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
