@@ -11,6 +11,12 @@
 
 set -euo pipefail
 
+DRYRUN=0
+if [[ "${1:-}" == "--dryrun" ]]; then
+  DRYRUN=1
+  shift
+fi
+
 abort() { echo "ERROR: $*" >&2; exit 1; }
 info()  { echo "==> $*"; }
 cmd()   { echo "+ $*"; "$@"; }
@@ -63,6 +69,11 @@ cmd twine check dist/*
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
   abort "Working tree not clean. Commit or stash changes first."
+fi
+
+if [[ "${DRYRUN}" -eq 1 ]]; then
+  info "Dry run complete. Skipping version bump/tagging."
+  exit 0
 fi
 
 echo "Select version bump type:"
