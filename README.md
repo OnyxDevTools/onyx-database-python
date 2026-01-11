@@ -38,7 +38,7 @@ Python client SDK for **Onyx Cloud Database** — a small, typed, builder-patter
 3. **Install the SDK** in your project:
 
    ```bash
-   pip install onyx-database-python
+   pip install onyx-database
    ```
 
 4. **Initialize the client** using config files, env vars, or explicit config.
@@ -50,7 +50,7 @@ Python client SDK for **Onyx Cloud Database** — a small, typed, builder-patter
 ## Install
 
 ```bash
-pip install onyx-database-python
+pip install onyx-database
 ```
 
 The package installs:

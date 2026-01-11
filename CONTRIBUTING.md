@@ -95,7 +95,7 @@ python -m py_compile $(find onyx_database -name '*.py')
 - Publish: `twine upload dist/*`
 
 ## 11) Install the public package
-- `pip install onyx-database-python`
+- `pip install onyx-database`
 - For CLI-only without touching a venv: `pipx install onyx-database-python`
 
 ## CLI tools (schema + codegen)
