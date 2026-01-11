@@ -171,4 +171,8 @@ Done.
 
 CI publish will run on tag ${TAG}.
 
+Links:
+- PyPI project: https://pypi.org/project/onyx-database/
+- GitHub Actions: https://github.com/OnyxDevTools/onyx-database-python/actions
+
 NOTE
