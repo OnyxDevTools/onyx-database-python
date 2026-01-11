@@ -102,17 +102,10 @@ Example: `config/onyx-database.json`
 
 ```json
 {
-  "baseUrl": "https://api.onyx.dev",
   "databaseId": "YOUR_DATABASE_ID",
-  "auth": {
-    "type": "inline",
-    "apiKey": "YOUR_KEY",
-    "apiSecret": "YOUR_SECRET"
-  },
-  "defaults": {
-    "partition": "",
-    "requestTimeoutSeconds": 30
-  }
+  "baseUrl": "https://api.onyx.dev",
+  "apiKey": "YOUR_DATABASE_KEY",
+  "apiSecret": "YOUR_API_SECRET"
 }
 ```
 
