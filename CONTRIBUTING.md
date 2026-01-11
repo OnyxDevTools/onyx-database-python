@@ -96,7 +96,7 @@ python -m py_compile $(find onyx_database -name '*.py')
 
 ## 11) Install the public package
 - `pip install onyx-database`
-- For CLI-only without touching a venv: `pipx install onyx-database-python`
+- For CLI-only without touching a venv: `pipx install onyx-database`
 
 ## CLI tools (schema + codegen)
 Install the CLI (`onyx-py`) locally or globally, then use `schema` / `gen`:

@@ -63,7 +63,7 @@ The package installs:
 If you want `onyx-py gen` / `onyx-py schema` available globally without polluting your project venv:
 
 ```bash
-pipx install onyx-database-python
+pipx install onyx-database
 ```
 
 ### Install from a repo checkout (local dev)
