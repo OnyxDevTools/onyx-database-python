@@ -4,7 +4,6 @@ import unittest
 
 from onyx_database.http import HttpClient
 from onyx_database.errors import (
-    OnyxHTTPError,
     OnyxUnauthorizedError,
     OnyxNotFoundError,
     OnyxRateLimitedError,
@@ -12,7 +11,6 @@ from onyx_database.errors import (
     OnyxClientError,
     OnyxTimeoutError,
 )
-import urllib.error
 
 
 class FakeHttp(HttpClient):

@@ -6,10 +6,9 @@ import json
 from typing import Any, Dict, Iterable, Optional
 
 from .config import ResolvedConfig, clear_config_cache, resolve_config
-from .errors import OnyxConfigError, OnyxHTTPError
+from .errors import OnyxHTTPError
 from .http import HttpClient, serialize_dates
 from .query_builder import QueryBuilder
-from .query_results import QueryResults
 from .stream import open_json_lines_stream
 from .types import SchemaDiff
 
@@ -193,7 +192,6 @@ class OnyxDatabase:
         if keep_alive:
             params.append("keepAlive=true")
         query = f"?{'&'.join(params)}" if params else ""
-        url = f"{self._base_url}/data/{self._database_id}/query/stream/{table}{query}"
         hdrs = self._http.headers({"Accept": "application/x-ndjson", "Content-Type": "application/json"})
         body = json.dumps(serialize_dates(select))
 

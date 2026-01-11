@@ -3,7 +3,6 @@ import json
 import unittest
 
 from onyx_database.http import HttpClient, AsyncHttpClient
-from onyx_database.onyx_async import OnyxDatabaseAsync
 from onyx_database.query_results_async import AsyncQueryResults
 
 

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-import asyncio
 from typing import Any, Dict, Iterable, Optional
 
 from .config import ResolvedConfig, clear_config_cache, resolve_config
-from .errors import OnyxConfigError, OnyxHTTPError
+from .errors import OnyxHTTPError
 from .http import HttpClient, AsyncHttpClient, serialize_dates
 from .query_builder_async import AsyncQueryBuilder
-from .query_results_async import AsyncQueryResults
 from .stream import open_json_lines_stream
 from .types import SchemaDiff
 
@@ -190,7 +188,6 @@ class OnyxDatabaseAsync:
         if keep_alive:
             params.append("keepAlive=true")
         query = f"?{'&'.join(params)}" if params else ""
-        url = f"{self._base_url}/data/{self._database_id}/query/stream/{table}{query}"
         hdrs = self._http_sync.headers({"Accept": "application/x-ndjson", "Content-Type": "application/json"})
         body = json.dumps(serialize_dates(select))
 

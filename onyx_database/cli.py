@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict
 
 from . import onyx
 from .config import resolve_config, _candidate_paths, OnyxConfigError
@@ -117,7 +117,7 @@ def handle_schema(args: argparse.Namespace) -> int:
         return 1
 
     if action == "get":
-        tables: List[str] = []
+        tables: list[str] = []
         if args.tables:
             tables = [t.strip() for t in args.tables.split(",") if t.strip()]
         schema = db.get_schema(tables=tables if tables else None)

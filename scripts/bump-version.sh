@@ -31,10 +31,37 @@ if [[ "${CURRENT_BRANCH}" != "${MAIN_BRANCH}" ]]; then
   cmd git checkout "${MAIN_BRANCH}"
 fi
 
+# Ensure working tree is clean (or auto-commit if user agrees)
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Working tree is not clean."
+  read -rp "Enter a commit message to save current changes (or leave empty to abort): " AUTO_COMMIT_MSG
+  if [[ -z "${AUTO_COMMIT_MSG}" ]]; then
+    abort "Working tree not clean. Commit or stash changes first."
+  fi
+  info "Committing pending changes..."
+  cmd git add -A
+  cmd git commit -m "${AUTO_COMMIT_MSG}"
+  cmd git push origin "${MAIN_BRANCH}"
+else
+  AUTO_COMMIT_MSG=""
+fi
+
 info "Installing deps..."
 cmd python -m pip install --upgrade pip
 cmd python -m pip install -e .
-cmd python -m pip install build twine
+
+# Ensure required tooling is present
+MISSING=()
+for pkg in build twine tomli_w ruff flake8; do
+  import_name="${pkg//-/_}"
+  if ! python -c "import ${import_name}" >/dev/null 2>&1; then
+    MISSING+=("${pkg}")
+  fi
+done
+if (( ${#MISSING[@]} )); then
+  info "Installing missing tools: ${MISSING[*]}"
+  cmd python -m pip install "${MISSING[@]}"
+fi
 
 info "Running unit tests..."
 cmd python -m unittest discover tests
@@ -65,11 +92,7 @@ info "Building distributions..."
 cmd python -m build
 
 info "Twine check..."
-cmd twine check dist/*
-
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  abort "Working tree not clean. Commit or stash changes first."
-fi
+cmd twine check dist/* 
 
 if [[ "${DRYRUN}" -eq 1 ]]; then
   info "Dry run complete. Skipping version bump/tagging."
@@ -82,6 +105,9 @@ select BUMP_TYPE in patch minor major; do
 done
 
 read -rp "Enter release message: " MESSAGE
+if [[ -z "${MESSAGE}" && -n "${AUTO_COMMIT_MSG}" ]]; then
+  MESSAGE="${AUTO_COMMIT_MSG}"
+fi
 MESSAGE="${MESSAGE:-"${BUMP_TYPE} release"}"
 
 CURRENT_VERSION="$(python - <<'PY'

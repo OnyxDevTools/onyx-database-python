@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Iterable, List, Optional
+from typing import Any, Awaitable, Callable, Iterable, Optional
 
 
 class AsyncQueryResults(list):

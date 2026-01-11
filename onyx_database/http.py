@@ -8,7 +8,8 @@ import re
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional, Tuple, IO
+from typing import Any, Dict, Optional, Tuple
+import asyncio
 
 from .errors import (
     OnyxConfigError,
@@ -210,6 +211,29 @@ class HttpClient:
             raise last_error
         raise OnyxHTTPError("Request failed")
 
+    def open_stream(
+        self,
+        path: str,
+        *,
+        method: str = "PUT",
+        body: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> urllib.response.addinfourl:
+        if not path.startswith("/"):
+            raise OnyxConfigError("path must start with /")
+        url = f"{self.base_url}{path}"
+        hdrs = self.headers(headers)
+        payload = body.encode("utf-8") if body is not None else None
+        req = urllib.request.Request(url, data=payload, headers=hdrs, method=method)
+        try:
+            return urllib.request.urlopen(req)
+        except urllib.error.HTTPError as err:
+            raw_bytes = err.read()
+            raw_text = raw_bytes.decode(err.headers.get_content_charset() or "utf-8", errors="replace")
+            raise OnyxHTTPError(str(raw_text or err), err.code, err.reason, raw_text, raw_text)
+        except urllib.error.URLError as err:
+            raise OnyxHTTPError(str(err), None, None, None, None)
+
 
 class AsyncHttpClient:
     """Async wrapper around HttpClient using thread executors (stdlib only)."""
@@ -226,38 +250,3 @@ class AsyncHttpClient:
     ) -> Any:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, lambda: self._sync.request(method, path, body, extra_headers))
-
-    async def open_stream(
-        self,
-        path: str,
-        *,
-        method: str = "PUT",
-        body: Optional[str] = None,
-        headers: Optional[Dict[str, str]] = None,
-    ):
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, lambda: self._sync.open_stream(path, method=method, body=body, headers=headers))
-
-    def open_stream(
-        self,
-        path: str,
-        *,
-        method: str = "PUT",
-        body: Optional[str] = None,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> IO[bytes]:
-        if not path.startswith("/"):
-            raise OnyxConfigError("path must start with /")
-        url = f"{self.base_url}{path}"
-        hdrs = self.headers(headers)
-        payload = body.encode("utf-8") if body is not None else None
-        req = urllib.request.Request(url, data=payload, headers=hdrs, method=method)
-        try:
-            return urllib.request.urlopen(req)
-        except urllib.error.HTTPError as err:
-            raw_bytes = err.read()
-            raw_text = raw_bytes.decode(err.headers.get_content_charset() or "utf-8", errors="replace")
-            raise OnyxHTTPError(str(raw_text or err), err.code, err.reason, raw_text, raw_text)
-        except urllib.error.URLError as err:
-            raise OnyxHTTPError(str(err), None, None, None, None)
-import asyncio

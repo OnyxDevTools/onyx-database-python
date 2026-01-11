@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 from typing import Any, Callable, Dict, Optional, IO
 
-from .errors import OnyxHTTPError
 from .http import parse_json_allow_nan
 
 
@@ -87,7 +85,7 @@ def open_json_lines_stream(
                     process_line(line)
                 if cancel_event.is_set():
                     break
-            except Exception as err:
+            except Exception:
                 retries += 1
                 if retries > max_retries or cancel_event.is_set():
                     break

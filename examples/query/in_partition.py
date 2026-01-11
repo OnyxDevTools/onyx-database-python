@@ -11,5 +11,5 @@ logs = (
     .list()
 )
 
-print("tenantA logs:", [l.id for l in logs])
+print("tenantA logs:", [log_item.id for log_item in logs])
 print("example: completed")

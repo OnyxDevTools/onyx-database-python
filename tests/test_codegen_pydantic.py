@@ -1,5 +1,4 @@
 import tempfile
-import json
 import importlib.util
 import sys
 import unittest
