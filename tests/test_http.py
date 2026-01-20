@@ -2,7 +2,7 @@ import json
 import urllib.error
 import unittest
 
-from onyx_database.http import HttpClient
+from onyx_database.http import HttpClient, serialize_dates
 from onyx_database.errors import (
     OnyxUnauthorizedError,
     OnyxNotFoundError,
@@ -11,6 +11,7 @@ from onyx_database.errors import (
     OnyxClientError,
     OnyxTimeoutError,
 )
+import datetime
 
 
 class FakeHttp(HttpClient):
@@ -44,6 +45,11 @@ class FakeHttp(HttpClient):
 
 
 class HttpTests(unittest.TestCase):
+    def test_datetime_serialization_to_rfc3339_millis(self):
+        now = datetime.datetime(2024, 1, 2, 3, 4, 5, 678901, tzinfo=datetime.timezone.utc)
+        serialized = serialize_dates(now)
+        self.assertEqual(serialized, "2024-01-02T03:04:05.678Z")
+
     def test_retries_on_500_then_succeeds(self):
         responses = [
             (500, "err", {"Content-Type": "application/json"}, json.dumps({"error": {"message": "boom"}})),

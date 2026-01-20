@@ -1,7 +1,7 @@
 {
   "databaseId": "bbabca0e-82ce-11f0-0000-a2ce78b61b6a",
-  "revisionDescription": "",
-  "entityText": "[{\"name\":\"AuditLog\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"action\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"actorId\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"changes\",\"type\":\"EmbeddedObject\",\"isNullable\":true},{\"name\":\"dateTime\",\"type\":\"Timestamp\"},{\"name\":\"errorCode\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"errorMessage\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"metadata\",\"type\":\"EmbeddedObject\",\"isNullable\":true},{\"name\":\"requestId\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"resource\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"status\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"targetId\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"tenantId\",\"type\":\"String\",\"isNullable\":true}]},{\"name\":\"Permission\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"description\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"name\",\"type\":\"String\"},{\"name\":\"updatedAt\",\"type\":\"Timestamp\"}]},{\"name\":\"Role\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"description\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"isSystem\",\"type\":\"Boolean\"},{\"name\":\"name\",\"type\":\"String\"},{\"name\":\"updatedAt\",\"type\":\"Timestamp\"}],\"resolvers\":[{\"name\":\"permissions\",\"resolver\":\"db.from(\\\"Permission\\\")\\n  .where(\\n    inOp(\\\"id\\\", \\n        db.from(\\\"RolePermission\\\")\\n            .where(eq(\\\"roleId\\\", this.id))\\n            .list()\\n            .values('permissionId')\\n    )\\n)\\n .list()\"},{\"name\":\"rolePermissions\",\"resolver\":\"db.from(\\\"RolePermission\\\")\\n .where(eq(\\\"roleId\\\", this.id))\\n .list()\"}]},{\"name\":\"RolePermission\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"permissionId\",\"type\":\"String\"},{\"name\":\"roleId\",\"type\":\"String\"}],\"resolvers\":[{\"name\":\"permission\",\"resolver\":\"db.from(\\\"Permission\\\")\\n .where(eq(\\\"id\\\", this.permissionId))\\n .firstOrNull()\"},{\"name\":\"role\",\"resolver\":\"db.from(\\\"Role\\\")\\n .where(eq(\\\"id\\\", this.roleId))\\n .firstOrNull()\"}]},{\"name\":\"User\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"email\",\"type\":\"String\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"isActive\",\"type\":\"Boolean\"},{\"name\":\"lastLoginAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"updatedAt\",\"type\":\"Timestamp\"},{\"name\":\"username\",\"type\":\"String\"}],\"resolvers\":[{\"name\":\"profile\",\"resolver\":\"db.from(\\\"UserProfile\\\")\\n .where(eq(\\\"userId\\\", this.id))\\n .firstOrNull()\"},{\"name\":\"roles\",\"resolver\":\"db.from(\\\"Role\\\")\\n  .where(\\n    inOp(\\\"id\\\", \\n        db.from(\\\"UserRole\\\")\\n            .where(eq(\\\"userId\\\", this.id))\\n            .list()\\n            .values('roleId')\\n    )\\n)\\n .list()\"},{\"name\":\"userRoles\",\"resolver\":\"db.from(\\\"UserRole\\\")\\n  .where(eq(\\\"userId\\\", this.id))\\n  .list()\"}]},{\"name\":\"UserProfile\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"address\",\"type\":\"EmbeddedObject\",\"isNullable\":true},{\"name\":\"age\",\"type\":\"Int\",\"isNullable\":true},{\"name\":\"avatarUrl\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"bio\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"firstName\",\"type\":\"String\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"lastName\",\"type\":\"String\"},{\"name\":\"phone\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"updatedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"userId\",\"type\":\"String\"}]},{\"name\":\"UserRole\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"roleId\",\"type\":\"String\"},{\"name\":\"userId\",\"type\":\"String\"}],\"resolvers\":[{\"name\":\"role\",\"resolver\":\"db.from(\\\"Role\\\")\\n .where(eq(\\\"id\\\", this.roleId))\\n .list()\"}]}]",
+  "revisionDescription": "enabled all tables full text searchable",
+  "entityText": "[{\"name\":\"AuditLog\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"action\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"actorId\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"changes\",\"type\":\"EmbeddedObject\",\"isNullable\":true},{\"name\":\"dateTime\",\"type\":\"Timestamp\"},{\"name\":\"errorCode\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"errorMessage\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"metadata\",\"type\":\"EmbeddedObject\",\"isNullable\":true},{\"name\":\"requestId\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"resource\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"status\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"targetId\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"tenantId\",\"type\":\"String\",\"isNullable\":true}],\"resolvers\":[],\"triggers\":[],\"indexes\":[]},{\"name\":\"Permission\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"description\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"name\",\"type\":\"String\"},{\"name\":\"updatedAt\",\"type\":\"Timestamp\"}],\"resolvers\":[],\"triggers\":[],\"indexes\":[]},{\"name\":\"Role\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"description\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"isSystem\",\"type\":\"Boolean\"},{\"name\":\"name\",\"type\":\"String\"},{\"name\":\"updatedAt\",\"type\":\"Timestamp\"}],\"resolvers\":[{\"name\":\"permissions\",\"resolver\":\"db.from(\\\"Permission\\\")\\n  .where(\\n    inOp(\\\"id\\\", \\n        db.from(\\\"RolePermission\\\")\\n            .where(eq(\\\"roleId\\\", this.id))\\n            .list()\\n            .values('permissionId')\\n    )\\n)\\n .list()\"},{\"name\":\"rolePermissions\",\"resolver\":\"db.from(\\\"RolePermission\\\")\\n .where(eq(\\\"roleId\\\", this.id))\\n .list()\"}],\"triggers\":[],\"indexes\":[]},{\"name\":\"RolePermission\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"permissionId\",\"type\":\"String\"},{\"name\":\"roleId\",\"type\":\"String\"}],\"resolvers\":[{\"name\":\"permission\",\"resolver\":\"db.from(\\\"Permission\\\")\\n .where(eq(\\\"id\\\", this.permissionId))\\n .firstOrNull()\"},{\"name\":\"role\",\"resolver\":\"db.from(\\\"Role\\\")\\n .where(eq(\\\"id\\\", this.roleId))\\n .firstOrNull()\"}],\"triggers\":[],\"indexes\":[]},{\"name\":\"User\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"email\",\"type\":\"String\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"isActive\",\"type\":\"Boolean\"},{\"name\":\"lastLoginAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"updatedAt\",\"type\":\"Timestamp\"},{\"name\":\"username\",\"type\":\"String\"}],\"resolvers\":[{\"name\":\"profile\",\"resolver\":\"db.from(\\\"UserProfile\\\")\\n .where(eq(\\\"userId\\\", this.id))\\n .firstOrNull()\"},{\"name\":\"roles\",\"resolver\":\"db.from(\\\"Role\\\")\\n  .where(\\n    inOp(\\\"id\\\", \\n        db.from(\\\"UserRole\\\")\\n            .where(eq(\\\"userId\\\", this.id))\\n            .list()\\n            .values('roleId')\\n    )\\n)\\n .list()\"},{\"name\":\"userRoles\",\"resolver\":\"db.from(\\\"UserRole\\\")\\n  .where(eq(\\\"userId\\\", this.id))\\n  .list()\"}],\"triggers\":[],\"indexes\":[]},{\"name\":\"UserProfile\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"address\",\"type\":\"EmbeddedObject\",\"isNullable\":true},{\"name\":\"age\",\"type\":\"Int\",\"isNullable\":true},{\"name\":\"avatarUrl\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"bio\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"deletedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"firstName\",\"type\":\"String\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"lastName\",\"type\":\"String\"},{\"name\":\"phone\",\"type\":\"String\",\"isNullable\":true},{\"name\":\"updatedAt\",\"type\":\"Timestamp\",\"isNullable\":true},{\"name\":\"userId\",\"type\":\"String\"}],\"resolvers\":[],\"triggers\":[],\"indexes\":[]},{\"name\":\"UserRole\",\"identifier\":{\"name\":\"id\",\"generator\":\"None\",\"type\":\"String\"},\"partition\":\"\",\"type\":\"SEARCHABLE\",\"attributes\":[{\"name\":\"createdAt\",\"type\":\"Timestamp\"},{\"name\":\"id\",\"type\":\"String\"},{\"name\":\"roleId\",\"type\":\"String\"},{\"name\":\"userId\",\"type\":\"String\"}],\"resolvers\":[{\"name\":\"role\",\"resolver\":\"db.from(\\\"Role\\\")\\n .where(eq(\\\"id\\\", this.roleId))\\n .list()\"}],\"triggers\":[],\"indexes\":[]}]",
   "entities": [
     {
       "name": "AuditLog",
@@ -10,6 +10,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "action",
@@ -74,7 +76,10 @@
           "type": "String",
           "isNullable": true
         }
-      ]
+      ],
+      "resolvers": [],
+      "triggers": [],
+      "indexes": []
     },
     {
       "name": "Permission",
@@ -83,6 +88,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "createdAt",
@@ -110,7 +117,10 @@
           "name": "updatedAt",
           "type": "Timestamp"
         }
-      ]
+      ],
+      "resolvers": [],
+      "triggers": [],
+      "indexes": []
     },
     {
       "name": "Role",
@@ -119,6 +129,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "createdAt",
@@ -160,7 +172,9 @@
           "name": "rolePermissions",
           "resolver": "db.from(\"RolePermission\")\n .where(eq(\"roleId\", this.id))\n .list()"
         }
-      ]
+      ],
+      "triggers": [],
+      "indexes": []
     },
     {
       "name": "RolePermission",
@@ -169,6 +183,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "createdAt",
@@ -196,7 +212,9 @@
           "name": "role",
           "resolver": "db.from(\"Role\")\n .where(eq(\"id\", this.roleId))\n .firstOrNull()"
         }
-      ]
+      ],
+      "triggers": [],
+      "indexes": []
     },
     {
       "name": "User",
@@ -205,6 +223,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "createdAt",
@@ -254,7 +274,9 @@
           "name": "userRoles",
           "resolver": "db.from(\"UserRole\")\n  .where(eq(\"userId\", this.id))\n  .list()"
         }
-      ]
+      ],
+      "triggers": [],
+      "indexes": []
     },
     {
       "name": "UserProfile",
@@ -263,6 +285,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "address",
@@ -319,7 +343,10 @@
           "name": "userId",
           "type": "String"
         }
-      ]
+      ],
+      "resolvers": [],
+      "triggers": [],
+      "indexes": []
     },
     {
       "name": "UserRole",
@@ -328,6 +355,8 @@
         "generator": "None",
         "type": "String"
       },
+      "partition": "",
+      "type": "SEARCHABLE",
       "attributes": [
         {
           "name": "createdAt",
@@ -351,7 +380,9 @@
           "name": "role",
           "resolver": "db.from(\"Role\")\n .where(eq(\"id\", this.roleId))\n .list()"
         }
-      ]
+      ],
+      "triggers": [],
+      "indexes": []
     }
   ]
 }

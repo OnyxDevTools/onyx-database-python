@@ -431,6 +431,146 @@ roles_missing_permission = (
 )
 ```
 
+### Full-text (Lucene) search
+
+Use `.search(...)` on a builder or the `search` predicate helper to add a `MATCHES` condition against the `__full_text__` pseudo-field. `db.search(...)` sets `table = "ALL"` and seeds a query builder with that condition (extras like `partition`, `pageSize`, `nextPage` remain querystring params when provided).
+
+```py
+from onyx_database import onyx, search, eq
+from myservice.db.generated.tables import tables
+
+db = onyx.init()
+
+# Table-specific
+db.from_table(tables.User).search("Text", 4.4).list()
+db.from_table(tables.User).search("Text").list()              # sends "minScore": null
+
+# Across all tables
+db.search("Text", 4.4).list()
+db.search("Text").list()                                      # sends "minScore": null
+
+# Combine with structured filters
+db.from_table(tables.User).where(search("text", 4.4)).and_(eq("status", "active")).list()
+```
+
+Practical Lucene examples:
+
+```py
+# Lucene phrase + boolean within one table
+lucene_query = '"product engineer" AND remote'
+db.from_table(tables.User).search(lucene_query, 0).list()
+
+# All-table search with a phrase branch OR an email wildcard
+lucene_all_query = '("product manager" AND remote) OR email:*.ux*'
+db.search(lucene_all_query).list()
+```
+
+Example request bodies emitted by the SDK:
+
+- Table search with `minScore`
+
+```json
+{
+  "type": "SelectQuery",
+  "conditions": {
+    "criteria": {
+      "field": "__full_text__",
+      "operator": "MATCHES",
+      "value": { "queryText": "Text", "minScore": 4.4 }
+    },
+    "conditionType": "SingleCondition"
+  },
+  "distinct": false,
+  "table": "Table"
+}
+```
+
+- Table search with `minScore: null`
+
+```json
+{
+  "type": "SelectQuery",
+  "conditions": {
+    "criteria": {
+      "field": "__full_text__",
+      "operator": "MATCHES",
+      "value": { "queryText": "Text", "minScore": null }
+    },
+    "conditionType": "SingleCondition"
+  },
+  "distinct": false,
+  "table": "Table"
+}
+```
+
+- All tables via `db.search("Text", 4.4)`
+
+```json
+{
+  "type": "SelectQuery",
+  "conditions": {
+    "criteria": {
+      "field": "__full_text__",
+      "operator": "MATCHES",
+      "value": { "queryText": "Text", "minScore": 4.4 }
+    },
+    "conditionType": "SingleCondition"
+  },
+  "distinct": false,
+  "table": "ALL"
+}
+```
+
+- All tables with `minScore: null`
+
+```json
+{
+  "type": "SelectQuery",
+  "conditions": {
+    "criteria": {
+      "field": "__full_text__",
+      "operator": "MATCHES",
+      "value": { "queryText": "Text", "minScore": null }
+    },
+    "conditionType": "SingleCondition"
+  },
+  "distinct": false,
+  "table": "ALL"
+}
+```
+
+- Combined search predicate with another filter
+
+```json
+{
+  "type": "SelectQuery",
+  "conditions": {
+    "operator": "AND",
+    "conditions": [
+      {
+        "criteria": {
+          "field": "__full_text__",
+          "operator": "MATCHES",
+          "value": { "queryText": "text", "minScore": 4.4 }
+        },
+        "conditionType": "SingleCondition"
+      },
+      {
+        "criteria": {
+          "field": "status",
+          "operator": "EQUAL",
+          "value": "active"
+        },
+        "conditionType": "SingleCondition"
+      }
+    ],
+    "conditionType": "CompoundCondition"
+  },
+  "distinct": false,
+  "table": "Table"
+}
+```
+
 ---
 
 ## Usage examples with `User`, `Role`, `Permission`

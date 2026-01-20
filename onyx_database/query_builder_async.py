@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from .query_builder import _flatten_strings, _normalize_condition
 from .query_results_async import AsyncQueryResults
 from .types import Sort
+from .helpers.conditions import search as search_condition
 
 
 class AsyncQueryBuilder:
@@ -98,6 +99,22 @@ class AsyncQueryBuilder:
                 "operator": "AND",
                 "conditions": [self._conditions, cond],
             }
+        return self
+
+    def search(self, query_text: str, min_score: Optional[float] = None):
+        cond = _normalize_condition(search_condition(query_text, min_score))
+        if not cond:
+            return self
+        if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
+            self._conditions["conditions"].append(cond)
+        elif self._conditions:
+            self._conditions = {
+                "conditionType": "CompoundCondition",
+                "operator": "AND",
+                "conditions": [self._conditions, cond],
+            }
+        else:
+            self._conditions = cond
         return self
 
     def and_(self, condition):

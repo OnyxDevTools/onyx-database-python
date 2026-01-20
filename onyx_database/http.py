@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -32,6 +33,14 @@ def parse_json_allow_nan(text: str) -> Any:
 
 
 def serialize_dates(value: Any) -> Any:
+    # Normalize datetime objects to RFC3339 with millisecond precision.
+    if isinstance(value, datetime.datetime):
+        try:
+            dt = value if value.tzinfo else value.replace(tzinfo=datetime.timezone.utc)
+            dt = dt.astimezone(datetime.timezone.utc)
+            return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        except Exception:
+            pass
     if hasattr(value, "isoformat") and callable(value.isoformat):
         try:
             return value.isoformat()

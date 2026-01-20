@@ -33,6 +33,7 @@ from .helpers.conditions import (
     not_matches,
     is_null,
     not_null,
+    search,
 )
 from .helpers.sort import asc, desc
 from .onyx_async import OnyxAsyncFacade, onyx_async
@@ -87,6 +88,7 @@ __all__ = [
     "not_matches",
     "is_null",
     "not_null",
+    "search",
     # sort
     "asc",
     "desc",

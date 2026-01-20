@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence, Union
+from typing import Any, Optional, Sequence, Union
 
 from ..types import Condition, QueryBuilderLike
 
@@ -108,3 +108,8 @@ def contains_ignore_case(field: str, value: Any) -> Condition:
 
 def not_contains_ignore_case(field: str, value: Any) -> Condition:
     return _condition(field, "NOT_CONTAINS_IGNORE_CASE", value)
+
+
+def search(query_text: str, min_score: Optional[float] = None) -> Condition:
+    """Full-text search using the __full_text__ pseudo-field."""
+    return _condition("__full_text__", "MATCHES", {"queryText": query_text, "minScore": min_score})
