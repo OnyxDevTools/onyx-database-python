@@ -13,5 +13,9 @@ user = (
 if not user:
     raise RuntimeError("No user matched resolver search example")
 
+roles = getattr(user, "roles", []) or []
+if not roles:
+    raise RuntimeError("Resolver did not return roles for matched user")
+
 print("matched user:", user.email)
 print("example: completed")

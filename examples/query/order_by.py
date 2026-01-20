@@ -10,5 +10,12 @@ users = (
     .list()
 )
 
-print([u.username for u in users])
+if not users:
+    raise RuntimeError("No users returned in order_by example")
+
+usernames = [u.username for u in users]
+if usernames != sorted(usernames):
+    raise RuntimeError("Usernames were not ordered ascending as expected")
+
+print(usernames)
 print("example: completed")

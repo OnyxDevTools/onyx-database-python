@@ -4,6 +4,7 @@ Run these examples from the repo root after configuring credentials (env vars or
 
 Examples are grouped by feature area:
 
+- `ai/` – Onyx AI chat completions and models
 - `query/` – basic filtering, paging, nested queries, updates
 - `save/` – save/batch save/cascade saves
 - `delete/` – delete by id or by query
@@ -16,4 +17,11 @@ Invoke an example:
 
 ```bash
 python3 examples/query/basic.py
+```
+
+```bash
+python3 examples/ai/chat.py
+python3 examples/ai/streaming.py
+python3 examples/ai/models.py
+python3 examples/ai/script_approval.py
 ```

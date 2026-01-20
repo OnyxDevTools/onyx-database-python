@@ -102,6 +102,13 @@ def seed() -> None:
     )
 
     print("Seeded admin user, role, permissions, and profile.")
+    fetched = db.find_by_id(tables.User, user.id)
+    if not fetched or getattr(fetched, "email", None) != "admin@example.com":
+        raise RuntimeError("Seed verification failed for admin user")
+    fetched_role = db.find_by_id(tables.Role, role.id)
+    if not fetched_role:
+        raise RuntimeError("Seed verification failed for admin role")
+    print("example: completed")
 
 
 if __name__ == "__main__":

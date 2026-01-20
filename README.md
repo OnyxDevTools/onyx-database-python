@@ -104,6 +104,7 @@ Example: `config/onyx-database.json`
 {
   "databaseId": "YOUR_DATABASE_ID",
   "baseUrl": "https://api.onyx.dev",
+  "aiBaseUrl": "https://ai.onyx.dev",
   "apiKey": "YOUR_DATABASE_KEY",
   "apiSecret": "YOUR_API_SECRET"
 }
@@ -141,6 +142,7 @@ Set the following:
 
 - `ONYX_DATABASE_ID`
 - `ONYX_DATABASE_BASE_URL`
+- `ONYX_AI_BASE_URL` (defaults to `https://ai.onyx.dev`)
 - `ONYX_DATABASE_API_KEY`
 - `ONYX_DATABASE_API_SECRET`
 
@@ -173,6 +175,66 @@ db = onyx.init(
 - `request_logging_enabled` logs HTTP requests and JSON bodies.
 - `response_logging_enabled` logs HTTP responses and JSON bodies.
 - Setting `ONYX_DEBUG=true` enables both request/response logging and also logs which credential source was used.
+
+---
+
+## Use Onyx AI (ChatGPT-compatible)
+
+Onyx AI shares the same key/secret as the database client. The AI base URL defaults to `https://ai.onyx.dev` and can be overridden via `aiBaseUrl`/`ai_base_url` in config or `ONYX_AI_BASE_URL` in the environment.
+
+```py
+from onyx_database import onyx
+
+db = onyx.init()
+
+# Basic chat completion
+resp = db.chat(
+    messages=[{"role": "user", "content": "Summarize last week's signups."}],
+    model="onyx-chat",
+)
+print(resp["choices"][0]["message"]["content"])
+
+# Streaming chat completion
+for chunk in db.chat(
+    messages=[{"role": "user", "content": "Draft an onboarding email."}],
+    model="onyx-chat",
+    stream=True,
+):
+    delta = chunk["choices"][0].get("delta", {})
+    if delta.get("content"):
+        print(delta["content"], end="", flush=True)
+
+# Models metadata
+models = db.get_models()
+print([m["id"] for m in models["data"]])
+```
+
+- Tool calls and other OpenAI fields (e.g., `tools`, `tool_choice`, `metadata`) can be passed straight through.
+- Pass `database_id="..."` to scope grounding/billing for chat; defaults to the database ID from `onyx.init()`.
+- Script mutation approvals:
+
+```py
+approval = db.request_script_approval("db.save({ 'table': 'User', 'id': '123' })")
+if approval["requiresApproval"]:
+    print("Approval needed:", approval["findings"])
+```
+
+- Override the AI base URL (self-hosted/testing):
+
+```py
+db = onyx.init(
+    base_url="https://api.onyx.dev",
+    ai_base_url="http://localhost:8787",
+    api_key="YOUR_KEY",
+    api_secret="YOUR_SECRET",
+)
+```
+
+Example scripts:
+
+- Chat completion: `examples/ai/chat.py`
+- Streaming chat: `examples/ai/streaming.py`
+- List/retrieve models: `examples/ai/models.py`
 
 ### Connection handling
 

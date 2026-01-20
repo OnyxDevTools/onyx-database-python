@@ -9,6 +9,9 @@ handle = (
     .stream(include_query_results=False)
 )
 
-# immediately close
-handle["cancel"]()
+cancel_fn = handle.get("cancel")
+if not cancel_fn or not callable(cancel_fn):
+    raise RuntimeError("Stream handle did not include a callable cancel")
+
+cancel_fn()
 print("example: completed")

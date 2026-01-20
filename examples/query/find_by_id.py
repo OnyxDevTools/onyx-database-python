@@ -14,10 +14,8 @@ db.save(tables.User, new_user)
 
 user = db.find_by_id(tables.User, "user_123", resolvers=["roles.permissions"])
 
-if user:
-    print("User:", user.username, "roles:", user.roles)
-else:
-    print("User not found")
+if not user or getattr(user, "id", None) != "user_123":
     raise RuntimeError("User not found in find_by_id example")
+print("User:", user.username, "roles:", user.roles)
 
 print("example: completed")

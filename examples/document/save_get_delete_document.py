@@ -19,5 +19,10 @@ if not content:
     raise RuntimeError("Failed to retrieve saved document")
 
 db.delete_document("hello.txt")
+try:
+    db.get_document("hello.txt")
+    raise RuntimeError("Document still retrievable after delete")
+except Exception:
+    pass
 
 print("example: completed")

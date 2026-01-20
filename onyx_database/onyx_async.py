@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Iterable, Optional
 
+from .ai import iter_sse_async
 from .config import ResolvedConfig, clear_config_cache, resolve_config
 from .errors import OnyxHTTPError
 from .http import HttpClient, AsyncHttpClient, serialize_dates
@@ -60,7 +61,19 @@ class OnyxDatabaseAsync:
             retry_backoff_seconds=self._resolved.retry_backoff_seconds,
         )
         self._http = AsyncHttpClient(self._http_sync)
+        self._ai_http_sync = HttpClient(
+            self._resolved.ai_base_url,
+            self._resolved.api_key,
+            self._resolved.api_secret,
+            request_logging_enabled=self._resolved.request_logging_enabled,
+            response_logging_enabled=self._resolved.response_logging_enabled,
+            request_timeout_seconds=self._resolved.request_timeout_seconds,
+            max_retries=self._resolved.max_retries,
+            retry_backoff_seconds=self._resolved.retry_backoff_seconds,
+        )
+        self._ai_http = AsyncHttpClient(self._ai_http_sync)
         self._base_url = self._resolved.base_url
+        self._ai_base_url = self._resolved.ai_base_url
         self._database_id = self._resolved.database_id
         self._default_partition = self._resolved.partition
 
@@ -279,6 +292,64 @@ class OnyxDatabaseAsync:
     async def delete_secret(self, key: str) -> Any:
         path = f"/database/{self._database_id}/secret/{key}"
         return await self._http.request("DELETE", path)
+
+    # AI endpoints
+    async def chat(
+        self,
+        *,
+        messages: Iterable[Dict[str, Any]],
+        model: str,
+        stream: bool = False,
+        database_id: Optional[str] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        tools: Optional[Any] = None,
+        tool_choice: Optional[Any] = None,
+        user: Optional[str] = None,
+        **extra: Any,
+    ) -> Any:
+        """Async chat completion request to Onyx AI (OpenAI-compatible schema)."""
+        payload: Dict[str, Any] = {"model": model, "messages": list(messages)}
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if top_p is not None:
+            payload["top_p"] = top_p
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if metadata is not None:
+            payload["metadata"] = metadata
+        if tools is not None:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+        if user is not None:
+            payload["user"] = user
+        payload.update({k: v for k, v in extra.items() if v is not None})
+
+        dbid = database_id if database_id is not None else self._database_id
+        query = f"?databaseId={dbid}" if dbid else ""
+        path = f"/v1/chat/completions{query}"
+        if stream:
+            payload["stream"] = True
+            body = json.dumps(serialize_dates(payload))
+            headers = self._ai_http_sync.headers({"Accept": "text/event-stream", "Content-Type": "application/json"})
+            stream_resp = self._ai_http_sync.open_stream(path=path, method="POST", body=body, headers=headers)
+            return iter_sse_async(stream_resp)
+        return await self._ai_http.request("POST", path, serialize_dates(payload))
+
+    async def get_models(self) -> Any:
+        """List available Onyx AI models."""
+        return await self._ai_http.request("GET", "/v1/models")
+
+    async def get_model(self, model_id: str) -> Any:
+        """Fetch metadata for a single Onyx AI model."""
+        return await self._ai_http.request("GET", f"/v1/models/{model_id}")
+
+    async def request_script_approval(self, script: str) -> Any:
+        """Submit a script for mutation approval analysis."""
+        return await self._ai_http.request("POST", "/api/script-approvals", {"script": script})
 
     def get_model_for_table(self, table: str):
         if isinstance(self._model_map, dict):

@@ -13,5 +13,9 @@ user = (
 if not user:
     raise RuntimeError("No user found for resolver example")
 
-print("user roles:", getattr(user, "roles", []))
+roles = getattr(user, "roles", []) or []
+if not roles:
+    raise RuntimeError("Resolver did not return roles for user")
+
+print("user roles:", roles)
 print("example: completed")

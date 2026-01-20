@@ -12,6 +12,11 @@ active_users = (
     .list()
 )
 
+if not active_users:
+    raise RuntimeError("No active users found")
+
 first = active_users[0]
+if "@example.com" not in first.email:
+    raise RuntimeError("First user email did not match filter")
 print(first.email)
 print("example: completed")
