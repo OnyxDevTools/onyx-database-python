@@ -482,13 +482,17 @@ from onyx_database import (
 Aggregate / string helpers for `select()` expressions:
 
 ```py
-from onyx_database import avg, sum, count, min, max, std, variance, median, upper, lower, substring, replace, percentile
+from onyx_database import avg, sum, count, min, max, std, variance, median, upper, lower, substring, replace, format, percentile
 
 db.select(avg("age")).from_table(tables.UserProfile).list()   # -> [{"avg(age)": 42}]
 db.from_table(tables.User).select("isActive", count("id")).group_by("isActive").list()
+db.from_table(tables.User).select("id", format("createdAt", "%tF")).list()
+db.from_table(tables.UserProfile).select("id", format("age", "%.1f")).list()
 ```
 
 When `select()` is used (including aggregates), `list()` returns dictionaries by default to avoid dropping custom field names; pass `model=User` to map records to a model explicitly.
+
+`format(field, formatter)` uses Java `String.format`-style patterns (for example, `%tF` for dates or `%.2f` for numbers) and works with any type supported by the formatter.
 
 ### Inner queries (IN/NOT IN with sub-selects)
 

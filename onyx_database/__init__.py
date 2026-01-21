@@ -50,6 +50,7 @@ from .helpers.aggregates import (
     lower,
     substring,
     replace,
+    format,
     percentile,
 )
 
@@ -105,5 +106,6 @@ __all__ = [
     "lower",
     "substring",
     "replace",
+    "format",
     "percentile",
 ]

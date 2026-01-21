@@ -50,5 +50,10 @@ def replace(attribute: str, pattern: str, repl: str) -> str:
     return f"replace({attribute}, '{pat}', '{rep}')"
 
 
+def format(attribute: str, formatter: str) -> str:  # noqa: A001 - mirrors backend helper name
+    fmt = formatter.replace("'", "\\'")
+    return f"format({attribute}, '{fmt}')"
+
+
 def percentile(attribute: str, p: float) -> str:
     return f"percentile({attribute}, {p})"
