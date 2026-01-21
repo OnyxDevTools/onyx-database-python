@@ -105,6 +105,7 @@ Example: `config/onyx-database.json`
   "databaseId": "YOUR_DATABASE_ID",
   "baseUrl": "https://api.onyx.dev",
   "aiBaseUrl": "https://ai.onyx.dev",
+  "defaultModel": "onyx",
   "apiKey": "YOUR_DATABASE_KEY",
   "apiSecret": "YOUR_API_SECRET"
 }
@@ -143,6 +144,7 @@ Set the following:
 - `ONYX_DATABASE_ID`
 - `ONYX_DATABASE_BASE_URL`
 - `ONYX_AI_BASE_URL` (defaults to `https://ai.onyx.dev`)
+- `ONYX_DEFAULT_MODEL` (defaults to `onyx`)
 - `ONYX_DATABASE_API_KEY`
 - `ONYX_DATABASE_API_SECRET`
 
@@ -180,43 +182,72 @@ db = onyx.init(
 
 ## Use Onyx AI (ChatGPT-compatible)
 
-Onyx AI shares the same key/secret as the database client. The AI base URL defaults to `https://ai.onyx.dev` and can be overridden via `aiBaseUrl`/`ai_base_url` in config or `ONYX_AI_BASE_URL` in the environment.
+Onyx AI shares the same key/secret as the database client. Use `db.ai` for chat, models, and script approvals; `db.chat()`/`db.chat('...')` remain supported. Shorthand chat defaults to `defaultModel` (or `ONYX_DEFAULT_MODEL`), which falls back to `onyx`. The AI base URL defaults to `https://ai.onyx.dev` and can be overridden via `aiBaseUrl`/`ai_base_url` in config or `ONYX_AI_BASE_URL` in the environment.
 
 ```py
 from onyx_database import onyx
 
 db = onyx.init()
 
-# Basic chat completion
-resp = db.chat(
-    messages=[{"role": "user", "content": "Summarize last week's signups."}],
-    model="onyx-chat",
-)
-print(resp["choices"][0]["message"]["content"])
+# Shorthand chat completion (returns first message content)
+quick = db.chat("Summarize last week's signups.")
+print(quick)
 
-# Streaming chat completion
-for chunk in db.chat(
-    messages=[{"role": "user", "content": "Draft an onboarding email."}],
+# Shorthand defaults:
+# - model: config defaultModel / ONYX_DEFAULT_MODEL (fallback "onyx")
+# - role: "user"
+# - stream: False
+# - return value: first message content (set raw=True for full response)
+
+# Full request via db.ai
+completion = db.ai.chat(
+    {
+        "model": "onyx-chat",
+        "messages": [{"role": "user", "content": "Summarize last week's signups."}],
+    }
+)
+print(completion["choices"][0]["message"]["content"])
+
+# Override shorthand defaults (raw=True returns full response)
+custom = db.chat(
+    "List three colors.",
     model="onyx-chat",
-    stream=True,
-):
-    delta = chunk["choices"][0].get("delta", {})
-    if delta.get("content"):
-        print(delta["content"], end="", flush=True)
+    role="user",
+    temperature=0.2,
+    raw=True,
+)
 
 # Models metadata
-models = db.get_models()
+models = db.ai.get_models()
 print([m["id"] for m in models["data"]])
 ```
 
-- Tool calls and other OpenAI fields (e.g., `tools`, `tool_choice`, `metadata`) can be passed straight through.
+- Tool calls and other OpenAI fields can be passed through when using a full request.
+- `db.chat()` returns a chat client for full requests: `db.chat().create({...})`.
 - Pass `database_id="..."` to scope grounding/billing for chat; defaults to the database ID from `onyx.init()`.
+- Shorthand streaming returns the SSE iterator (set `stream=True`); non-streaming shorthand returns the first message content unless `raw=True`.
 - Script mutation approvals:
 
 ```py
-approval = db.request_script_approval("db.save({ 'table': 'User', 'id': '123' })")
+approval = db.ai.request_script_approval("db.save({ 'table': 'User', 'id': '123' })")
 if approval["requiresApproval"]:
     print("Approval needed:", approval["findings"])
+```
+
+- Streaming chat:
+
+```py
+stream = db.ai.chat(
+    {
+        "model": "onyx-chat",
+        "stream": True,
+        "messages": [{"role": "user", "content": "Draft an onboarding email."}],
+    }
+)
+for chunk in stream:
+    delta = chunk["choices"][0].get("delta", {})
+    if delta.get("content"):
+        print(delta["content"], end="", flush=True)
 ```
 
 - Override the AI base URL (self-hosted/testing):
@@ -233,7 +264,9 @@ db = onyx.init(
 Example scripts:
 
 - Chat completion: `examples/ai/chat.py`
-- Streaming chat: `examples/ai/streaming.py`
+- Streaming chat (full request): `examples/ai/chat_stream.py`
+- Shorthand chat: `examples/ai/chat_shorthand.py`
+- Shorthand streaming: `examples/ai/chat_shorthand_stream.py`
 - List/retrieve models: `examples/ai/models.py`
 
 ### Connection handling

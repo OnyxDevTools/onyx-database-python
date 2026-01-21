@@ -13,6 +13,7 @@ from .errors import OnyxConfigError
 
 DEFAULT_BASE_URL = "https://api.onyx.dev"
 DEFAULT_AI_BASE_URL = "https://ai.onyx.dev"
+DEFAULT_AI_MODEL = "onyx"
 DEFAULT_CACHE_TTL_SECONDS = 5 * 60
 DEFAULT_TIMEOUT_SECONDS = None  # keep default behavior (blocking) unless set
 DEFAULT_MAX_RETRIES = None  # fall back to HttpClient logic (GET/query -> 3)
@@ -57,6 +58,7 @@ def _extract_auth(config: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]
 def _normalize_config(raw: Dict[str, Any]) -> Dict[str, Any]:
     base_url = raw.get("baseUrl") or raw.get("base_url")
     ai_base_url = raw.get("aiBaseUrl") or raw.get("ai_base_url")
+    default_model = raw.get("defaultModel") or raw.get("default_model")
     database_id = raw.get("databaseId") or raw.get("database_id")
     api_key, api_secret = _extract_auth(raw)
     partition = (
@@ -74,6 +76,7 @@ def _normalize_config(raw: Dict[str, Any]) -> Dict[str, Any]:
         {
             "base_url": base_url,
             "ai_base_url": ai_base_url,
+            "default_model": default_model,
             "database_id": database_id,
             "api_key": api_key,
             "api_secret": api_secret,
@@ -97,6 +100,7 @@ def _read_env(target_id: Optional[str]) -> Dict[str, Any]:
         {
             "base_url": env.get("ONYX_DATABASE_BASE_URL"),
             "ai_base_url": env.get("ONYX_AI_BASE_URL"),
+            "default_model": env.get("ONYX_DEFAULT_MODEL"),
             "database_id": env_id,
             "api_key": env.get("ONYX_DATABASE_API_KEY"),
             "api_secret": env.get("ONYX_DATABASE_API_SECRET"),
@@ -132,6 +136,7 @@ _config_cache: Dict[str, Any] = {}
 class ResolvedConfig:
     base_url: str
     ai_base_url: str
+    default_model: str
     database_id: str
     api_key: str
     api_secret: str
@@ -189,6 +194,11 @@ def resolve_config(explicit: Optional[Dict[str, Any]] = None) -> ResolvedConfig:
 
     base_url = merged.get("base_url") or DEFAULT_BASE_URL
     ai_base_url = merged.get("ai_base_url") or DEFAULT_AI_BASE_URL
+    default_model_raw = merged.get("default_model")
+    if isinstance(default_model_raw, str) and default_model_raw.strip():
+        default_model = default_model_raw.strip()
+    else:
+        default_model = DEFAULT_AI_MODEL
     database_id = merged.get("database_id")
     api_key = merged.get("api_key")
     api_secret = merged.get("api_secret")
@@ -221,6 +231,7 @@ def resolve_config(explicit: Optional[Dict[str, Any]] = None) -> ResolvedConfig:
     resolved = ResolvedConfig(
         base_url=_sanitize_base_url(base_url),
         ai_base_url=_sanitize_base_url(ai_base_url),
+        default_model=default_model,
         database_id=database_id,
         api_key=api_key,
         api_secret=api_secret,

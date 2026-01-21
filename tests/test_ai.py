@@ -4,6 +4,7 @@ import unittest
 
 from onyx_database.config import (
     DEFAULT_AI_BASE_URL,
+    DEFAULT_AI_MODEL,
     clear_config_cache,
     resolve_config,
 )
@@ -49,6 +50,7 @@ class FakeAiHttp(HttpClient):
 class AiConfigTests(unittest.TestCase):
     def setUp(self):
         self.prev_ai_base = os.environ.pop("ONYX_AI_BASE_URL", None)
+        self.prev_default_model = os.environ.pop("ONYX_DEFAULT_MODEL", None)
         clear_config_cache()
 
     def tearDown(self):
@@ -57,6 +59,10 @@ class AiConfigTests(unittest.TestCase):
             os.environ.pop("ONYX_AI_BASE_URL", None)
         else:
             os.environ["ONYX_AI_BASE_URL"] = self.prev_ai_base
+        if self.prev_default_model is None:
+            os.environ.pop("ONYX_DEFAULT_MODEL", None)
+        else:
+            os.environ["ONYX_DEFAULT_MODEL"] = self.prev_default_model
 
     def test_ai_base_url_defaults(self):
         cfg = resolve_config({"databaseId": "db1", "apiKey": "k", "apiSecret": "s"})
@@ -67,6 +73,16 @@ class AiConfigTests(unittest.TestCase):
         clear_config_cache()
         cfg = resolve_config({"databaseId": "db1", "apiKey": "k", "apiSecret": "s"})
         self.assertEqual(cfg.ai_base_url, "https://ai.example.com")
+
+    def test_default_model_defaults(self):
+        cfg = resolve_config({"databaseId": "db1", "apiKey": "k", "apiSecret": "s"})
+        self.assertEqual(cfg.default_model, DEFAULT_AI_MODEL)
+
+    def test_default_model_from_env(self):
+        os.environ["ONYX_DEFAULT_MODEL"] = "onyx-chat"
+        clear_config_cache()
+        cfg = resolve_config({"databaseId": "db1", "apiKey": "k", "apiSecret": "s"})
+        self.assertEqual(cfg.default_model, "onyx-chat")
 
 
 class AiClientTests(unittest.TestCase):
@@ -81,6 +97,38 @@ class AiClientTests(unittest.TestCase):
                 "api_secret": "s",
             }
         )
+
+    def test_chat_shorthand_returns_content(self):
+        fake_ai = FakeAiHttp(
+            responses=[{"choices": [{"message": {"content": "hello"}}]}]
+        )
+        self.db._ai_http = fake_ai
+        res = self.db.chat("hi")
+        self.assertEqual(res, "hello")
+        self.assertEqual(fake_ai.calls[0][1], "/v1/chat/completions?databaseId=db1")
+        body = fake_ai.calls[0][2]
+        self.assertEqual(body["model"], "onyx")
+        self.assertEqual(body["messages"][0]["role"], "user")
+
+    def test_chat_shorthand_raw_returns_response(self):
+        fake_ai = FakeAiHttp(
+            responses=[{"choices": [{"message": {"content": "hello"}}]}]
+        )
+        self.db._ai_http = fake_ai
+        res = self.db.chat("hi", raw=True)
+        self.assertIsInstance(res, dict)
+        self.assertEqual(res["choices"][0]["message"]["content"], "hello")
+
+    def test_chat_client_create_returns_response(self):
+        fake_ai = FakeAiHttp(
+            responses=[{"choices": [{"message": {"content": "hello"}}]}]
+        )
+        self.db._ai_http = fake_ai
+        client = self.db.chat()
+        res = client.create(
+            {"model": "onyx-chat", "messages": [{"role": "user", "content": "hi"}]}
+        )
+        self.assertEqual(res["choices"][0]["message"]["content"], "hello")
 
     def test_streaming_chat_builds_query_and_returns_chunks(self):
         stream = FakeStream(
@@ -111,6 +159,13 @@ class AiClientTests(unittest.TestCase):
         fake_ai = FakeAiHttp(responses=[{"object": "list", "data": []}])
         self.db._ai_http = fake_ai
         res = self.db.get_models()
+        self.assertEqual(res.get("object"), "list")
+        self.assertEqual(fake_ai.calls[0][1], "/v1/models")
+
+    def test_ai_namespace_get_models_uses_ai_client(self):
+        fake_ai = FakeAiHttp(responses=[{"object": "list", "data": []}])
+        self.db._ai_http = fake_ai
+        res = self.db.ai.get_models()
         self.assertEqual(res.get("object"), "list")
         self.assertEqual(fake_ai.calls[0][1], "/v1/models")
 

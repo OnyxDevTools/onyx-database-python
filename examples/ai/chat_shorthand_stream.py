@@ -6,17 +6,9 @@ def main():
 
     chunks = []
     print("Streaming response:")
-    for chunk in db.ai.chat(
-        {
-            "model": "onyx-chat",
-            "stream": True,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "List three product highlights in one short sentence.",
-                }
-            ],
-        }
+    for chunk in db.chat(
+        "List three product highlights in one short sentence.",
+        stream=True,
     ):
         delta = chunk["choices"][0].get("delta", {})
         if delta.get("content"):

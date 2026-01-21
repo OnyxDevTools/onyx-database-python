@@ -5,7 +5,7 @@ def main():
     db = onyx.init()
 
     # List models
-    models = db.get_models()
+    models = db.ai.get_models()
     data = models.get("data", []) if isinstance(models, dict) else []
     if not data:
         raise RuntimeError("Model list was empty")
@@ -13,7 +13,7 @@ def main():
 
     # Retrieve one model
     model_id = data[0].get("id", "onyx-chat")
-    model = db.get_model(model_id)
+    model = db.ai.get_model(model_id)
     if not model or model.get("id") != model_id:
         raise RuntimeError(f"Retrieve model failed for {model_id}")
     print("Model detail:", model)

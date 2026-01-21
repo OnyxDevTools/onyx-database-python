@@ -28,6 +28,64 @@ class _CascadeAsync:
         return await self._db.delete(table, primary_key, opts)
 
 
+class _AiChatClientAsync:
+    def __init__(self, db: "OnyxDatabaseAsync"):
+        self._db = db
+
+    async def create(
+        self,
+        request: Dict[str, Any],
+        options: Optional[Dict[str, Any]] = None,
+        *,
+        database_id: Optional[str] = None,
+    ) -> Any:
+        if options is None:
+            opts: Dict[str, Any] = {}
+        elif isinstance(options, dict):
+            opts = dict(options)
+        else:
+            raise TypeError("options must be a dict when provided")
+        if database_id is None:
+            database_id = opts.get("database_id") or opts.get("databaseId")
+        return await self._db._chat_request_async(request, database_id=database_id)
+
+
+class _AiNamespaceAsync:
+    def __init__(self, db: "OnyxDatabaseAsync"):
+        self._db = db
+        self._chat_client = _AiChatClientAsync(db)
+
+    def chat_client(self) -> _AiChatClientAsync:
+        return self._chat_client
+
+    def chat(
+        self,
+        content_or_request: Any,
+        options: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Any:
+        if isinstance(content_or_request, str):
+            return self._db._chat_with_content_async(content_or_request, options, **kwargs)
+        if isinstance(content_or_request, dict):
+            return self._chat_client.create(content_or_request, options, **kwargs)
+        raise TypeError("chat expects a string prompt or request dict")
+
+    async def get_models(self) -> Any:
+        return await self._db.get_models()
+
+    async def get_model(self, model_id: str) -> Any:
+        return await self._db.get_model(model_id)
+
+    async def request_script_approval(self, script: Any) -> Any:
+        if isinstance(script, dict):
+            script_value = script.get("script")
+        else:
+            script_value = script
+        if not script_value:
+            raise ValueError("script is required")
+        return await self._db.request_script_approval(str(script_value))
+
+
 class OnyxDatabaseAsync:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         config = config or {}
@@ -76,6 +134,8 @@ class OnyxDatabaseAsync:
         self._ai_base_url = self._resolved.ai_base_url
         self._database_id = self._resolved.database_id
         self._default_partition = self._resolved.partition
+        self._default_model = self._resolved.default_model
+        self.ai = _AiNamespaceAsync(self)
 
     def _maybe_apply_model(self, table: str, value: Any) -> Any:
         model = self._model_map.get(table)
@@ -293,13 +353,109 @@ class OnyxDatabaseAsync:
         path = f"/database/{self._database_id}/secret/{key}"
         return await self._http.request("DELETE", path)
 
-    # AI endpoints
-    async def chat(
+    def _merge_ai_options(
         self,
+        options: Optional[Dict[str, Any]] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        if options is None:
+            merged: Dict[str, Any] = {}
+        elif isinstance(options, dict):
+            merged = dict(options)
+        else:
+            raise TypeError("options must be a dict when provided")
+        if extra:
+            for key, value in extra.items():
+                if value is not None:
+                    merged[key] = value
+        for key, value in kwargs.items():
+            if value is not None:
+                merged[key] = value
+        return merged
+
+    def _extract_first_message_content(self, response: Any) -> str:
+        if isinstance(response, dict):
+            choices = response.get("choices") or []
+            if choices and isinstance(choices[0], dict):
+                message = choices[0].get("message") or {}
+                content = message.get("content")
+                if isinstance(content, str) and content.strip():
+                    return content
+        raise ValueError("Chat completion response is missing message content")
+
+    async def _chat_request_async(self, request: Dict[str, Any], *, database_id: Optional[str] = None) -> Any:
+        payload = dict(request or {})
+        if database_id is None:
+            database_id = payload.pop("database_id", None) or payload.pop("databaseId", None)
+        else:
+            payload.pop("database_id", None)
+            payload.pop("databaseId", None)
+        messages = payload.get("messages")
+        if messages is not None and not isinstance(messages, list):
+            payload["messages"] = list(messages)
+        stream = bool(payload.get("stream"))
+        payload["stream"] = stream
+
+        dbid = database_id if database_id is not None else self._database_id
+        query = f"?databaseId={dbid}" if dbid else ""
+        path = f"/v1/chat/completions{query}"
+        if stream:
+            body = json.dumps(serialize_dates(payload))
+            headers = self._ai_http_sync.headers({"Accept": "text/event-stream", "Content-Type": "application/json"})
+            stream_resp = self._ai_http_sync.open_stream(path=path, method="POST", body=body, headers=headers)
+            return iter_sse_async(stream_resp)
+        return await self._ai_http.request("POST", path, serialize_dates(payload))
+
+    async def _chat_with_content_async(
+        self,
+        content: str,
+        options: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Any:
+        opts = self._merge_ai_options(options, **kwargs)
+        raw = bool(opts.pop("raw", False))
+        stream = bool(opts.pop("stream", False))
+        role = opts.pop("role", None) or "user"
+        model = opts.pop("model", None) or self._default_model
+        database_id = opts.pop("database_id", None) or opts.pop("databaseId", None)
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": role, "content": content}],
+            "stream": stream,
+        }
+        if "temperature" in opts:
+            payload["temperature"] = opts.pop("temperature")
+        if "top_p" in opts:
+            payload["top_p"] = opts.pop("top_p")
+        if "max_tokens" in opts:
+            payload["max_tokens"] = opts.pop("max_tokens")
+        if "metadata" in opts:
+            payload["metadata"] = opts.pop("metadata")
+        if "tools" in opts:
+            payload["tools"] = opts.pop("tools")
+        if "tool_choice" in opts:
+            payload["tool_choice"] = opts.pop("tool_choice")
+        if "user" in opts:
+            payload["user"] = opts.pop("user")
+        if opts:
+            payload.update({k: v for k, v in opts.items() if v is not None})
+        result = await self._chat_request_async(payload, database_id=database_id)
+        if stream:
+            return result
+        if raw:
+            return result
+        return self._extract_first_message_content(result)
+
+    # AI endpoints
+    def chat(
+        self,
+        content: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
         *,
-        messages: Iterable[Dict[str, Any]],
-        model: str,
-        stream: bool = False,
+        messages: Optional[Iterable[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        stream: Optional[bool] = None,
         database_id: Optional[str] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
@@ -308,9 +464,61 @@ class OnyxDatabaseAsync:
         tools: Optional[Any] = None,
         tool_choice: Optional[Any] = None,
         user: Optional[str] = None,
+        role: Optional[str] = None,
+        raw: Optional[bool] = None,
         **extra: Any,
     ) -> Any:
-        """Async chat completion request to Onyx AI (OpenAI-compatible schema)."""
+        """Access AI chat: shorthand content or full request via chat client."""
+        if (
+            content is None
+            and options is None
+            and messages is None
+            and model is None
+            and stream is None
+            and database_id is None
+            and temperature is None
+            and top_p is None
+            and max_tokens is None
+            and metadata is None
+            and tools is None
+            and tool_choice is None
+            and user is None
+            and role is None
+            and raw is None
+            and not extra
+        ):
+            return self.ai.chat_client()
+
+        if isinstance(content, dict):
+            if options is not None and not isinstance(options, dict):
+                raise TypeError("options must be a dict when provided")
+            return self.ai.chat(content, options, database_id=database_id)
+
+        if isinstance(content, str):
+            opts = self._merge_ai_options(
+                options,
+                extra=extra,
+                database_id=database_id,
+                model=model,
+                role=role,
+                stream=stream,
+                raw=raw,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                metadata=metadata,
+                tools=tools,
+                tool_choice=tool_choice,
+                user=user,
+            )
+            return self._chat_with_content_async(content, opts)
+
+        if messages is None and model is None:
+            raise TypeError("chat requires a prompt string, messages, or no arguments for the chat client")
+
+        if messages is None or model is None:
+            raise ValueError("chat requires both messages and model when using message-based calls")
+
         payload: Dict[str, Any] = {"model": model, "messages": list(messages)}
         if temperature is not None:
             payload["temperature"] = temperature
@@ -327,17 +535,8 @@ class OnyxDatabaseAsync:
         if user is not None:
             payload["user"] = user
         payload.update({k: v for k, v in extra.items() if v is not None})
-
-        dbid = database_id if database_id is not None else self._database_id
-        query = f"?databaseId={dbid}" if dbid else ""
-        path = f"/v1/chat/completions{query}"
-        if stream:
-            payload["stream"] = True
-            body = json.dumps(serialize_dates(payload))
-            headers = self._ai_http_sync.headers({"Accept": "text/event-stream", "Content-Type": "application/json"})
-            stream_resp = self._ai_http_sync.open_stream(path=path, method="POST", body=body, headers=headers)
-            return iter_sse_async(stream_resp)
-        return await self._ai_http.request("POST", path, serialize_dates(payload))
+        payload["stream"] = bool(stream)
+        return self._chat_request_async(payload, database_id=database_id)
 
     async def get_models(self) -> Any:
         """List available Onyx AI models."""
