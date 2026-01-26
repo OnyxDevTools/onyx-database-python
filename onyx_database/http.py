@@ -93,6 +93,8 @@ class HttpClient:
             "x-onyx-secret": self.api_secret,
             "Accept": "application/json",
             "Content-Type": "application/json",
+            # Explicit UA helps avoid overly aggressive WAF/browser-signature blocks.
+            "User-Agent": "onyx-database-python",
             **self.defaults,
         }
         if extra:

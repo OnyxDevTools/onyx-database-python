@@ -9,7 +9,7 @@ Python client SDK for **Onyx Cloud Database** — a small, typed, builder-patter
 
 - A runtime SDK (sync-first; async optional if enabled)
 - Credential resolution (explicit config ➜ env ➜ config file chain ➜ home profile)
-- Optional **schema code generator** that produces table-safe Pydantic models and a `tables` helper
+- Optional generated tables/models via the external **Onyx CLI** (`onyx gen --python`) that produces table-safe Pydantic models and a `tables` helper
 
 - **Website:** https://onyx.dev/
 - **Cloud Console:** https://cloud.onyx.dev
@@ -24,15 +24,15 @@ Python client SDK for **Onyx Cloud Database** — a small, typed, builder-patter
    Create an **Organization**, then a **Database**, define your **Schema** (e.g., `User`, `Role`, `Permission`), and create **API Keys**.
 
 2. **Note your connection parameters**:
-   You will need to setup an apiKey to connect to your database in the onyx console at <https://cloud.onyx.dev>.  After creting the apiKey, you can download the `onyx-database.json`. Save it to the `config` folder
-   The default place where the sdk and the generator and schema cli tools look for the config and schema file is here: 
+   You will need to setup an apiKey to connect to your database in the onyx console at <https://cloud.onyx.dev>.  After creating the apiKey, you can download the `onyx-database.json`. Save it to the `config` folder
+   The SDK and the external Onyx CLI share the same config resolution chain. A recommended layout is:
 
     ```
     your-project/
     ├── config/
     │   └── onyx-database.json
-    └── schema/
-        └── onyx.schema.json
+    ├── onyx.schema.json          # fetched via `onyx schema get`
+    └── onyx/                     # generated via `onyx gen --python`
     ```
 
 3. **Install the SDK** in your project:
@@ -53,17 +53,20 @@ Python client SDK for **Onyx Cloud Database** — a small, typed, builder-patter
 pip install onyx-database
 ```
 
-The package installs:
+The package installs the importable module: `onyx_database`.
 
-- the importable module: `onyx_database`
-- the CLIs: `onyx-py gen` and `onyx-py schema`
+### CLI tooling (external, recommended globally)
 
-### CLI-only global install (recommended)
-
-If you want `onyx-py gen` / `onyx-py schema` available globally without polluting your project venv:
+Install the standalone **Onyx CLI** for schema commands and code generation:
 
 ```bash
-pipx install onyx-database
+# macOS (Homebrew tap)
+brew tap OnyxDevTools/onyx-cli
+brew install onyx-cli
+onyx version
+
+# or portable install script (uses latest release)
+curl -fsSL https://raw.githubusercontent.com/OnyxDevTools/onyx-cli/main/scripts/install.sh | bash
 ```
 
 ### Install from a repo checkout (local dev)
@@ -73,10 +76,6 @@ pipx install onyx-database
 python -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
-
-onyx-py gen --help
-onyx-py schema --help
-onyx-py info
 ```
 
 ---
@@ -278,91 +277,53 @@ the returned `db` for multiple operations.
 
 ---
 
-## Optional: generate Python models from your schema
+## Optional: generate Python models from your schema (via Onyx CLI)
 
-The package ships a small codegen CLI that emits:
+Use the standalone **Onyx CLI** to emit Python stubs (models, `tables` helper, and `SCHEMA` mapping). The CLI mirrors this SDK’s credential/config resolution.
 
-- a `tables` helper (table-name constants)
-- a `SCHEMA` metadata mapping
-- one Pydantic model per table
-- an `__init__.py` that re-exports the generated symbols
-
-Generated models allow extra properties so resolver-attached fields or embedded objects remain safe:
-they use Pydantic config `extra="allow"`.
-
-### Generate directly from the API
-
-Generate by downloading the schema from Onyx (using the same credential resolver as `init()`):
+### Generate directly from the API (preferred)
 
 ```bash
-onyx-py gen --source api --out ./onyx --package onyx
+onyx gen --python --source api --out ./onyx
 ```
-
-With `--source api`, `onyx-py gen` calls the Schema API (same as `onyx-py schema get`) using the
-standard config chain (env, project file, home profile).
 
 ### Generate from a local schema file
 
-Export `onyx.schema.json` from the console and generate locally:
-
 ```bash
-onyx-py gen --source file --schema ./schema/onyx.schema.json --out ./onyx --package onyx
+onyx schema get onyx.schema.json                # fetch if you don't have one yet
+onyx gen --python --schema ./onyx.schema.json --out ./onyx
 ```
 
-Run it with no flags to use defaults:
+Notes:
 
-- reads `./schema/onyx.schema.json` (or `./onyx.schema.json` if present)
-- writes to `./onyx` by default
-- if `--package` is omitted, the package name defaults to the final folder name from `--out` (e.g., `--out ./examples/onyx` => package `onyx`)
-- use `--models pydantic` to emit Pydantic models (default is plain classes; extra fields allowed)
-- CLI flags for HTTP behavior: `--timeout <seconds>`, `--max-retries <n>`, `--retry-backoff <seconds>`
-- Subset to stdout: `onyx-py gen --tables User Role` (prints only those entities instead of writing files)
-
-### Emit to multiple output paths
-
-Comma-separated or repeated `--out`:
-
-```bash
-onyx-py gen --out ./onyx,./apps/admin/onyx
-# or
-onyx-py gen --out ./onyx --out ./apps/admin/onyx
-```
-
-### Timestamp handling
-
-Timestamp attributes are emitted as `datetime.datetime` by default. When saving, `datetime`
-values are automatically serialized to ISO-8601 timestamp strings. Pass:
-
-- `--timestamps string` to keep timestamps as ISO strings in generated models.
+- Defaults: source `file`, schema `./onyx.schema.json`, output `./onyx`, overwrite on.
+- Use `--tables User,Role` to print only selected entities to stdout instead of writing files.
+- If you omit `--python`, the CLI falls back to `codegenLanguage` in config or `ONYX_CODEGEN_LANGUAGE`.
 
 ---
 
-## Manage schemas from the CLI
+## Manage schemas from the CLI (Onyx CLI)
 
-Publish or download schema JSON directly via API using the `onyx-py schema` helper:
+Use the external Onyx CLI for schema download/publish/validate/diff:
 
 ```bash
-# Publish ./schema/onyx.schema.json (publish=true by default)
-onyx-py schema publish
+# Download to onyx.schema.json (default path)
+onyx schema get onyx.schema.json
 
-# Overwrite ./schema/onyx.schema.json with the remote schema
-onyx-py schema get
+# Publish local schema (validates first)
+onyx schema publish onyx.schema.json
 
-# Print the remote schema without writing a file
-onyx-py schema get --print
-
-# Fetch only selected tables (prints to stdout; does not overwrite files)
-onyx-py schema get --tables=User,Profile
-
-# Validate a schema file without publishing
-onyx-py schema validate ./schema/onyx.schema.json
+# Validate without publishing
+onyx schema validate onyx.schema.json
 
 # Diff local schema vs API
-onyx-py schema diff ./schema/onyx.schema.json
+onyx schema diff onyx.schema.json
+
+# Print only selected tables to stdout
+onyx schema get --tables=User,Profile
 ```
 
-When `--tables` is provided, the subset is printed to stdout instead of writing a file.
-Otherwise, the CLI writes to `./schema/onyx.schema.json` by default.
+The CLI uses the same credential/config resolution chain as the SDK (explicit config ➜ env vars ➜ `ONYX_CONFIG_PATH` ➜ project config ➜ home profile).
 
 Programmatic diffing is also available:
 
@@ -868,39 +829,6 @@ except (OnyxConfigError, OnyxHTTPError) as err:
     print("Onyx error:", err)
 ```
 
----
-
-## CLI (codegen + schema)
-- From checkout: `python3 -m pip install -e .` exposes `onyx-py`
-- Or globally via pipx: `pipx install .`
-- Check help: `onyx-py --help`, `onyx-py gen --help`, `onyx-py schema --help`
-
-```
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| Command             | Flags                                       | Defaults / notes                                             |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| onyx-py info        | --json                                      | Shows DB ID, base URL, masked keys, config path, status.     |
-|                     |                                             | Uses standard config resolution.                             |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| onyx-py schema get  | --out <path>                                | Writes ./schema/onyx.schema.json if --out not set.           |
-|                     | --tables a,b                                | Creates schema/ if missing. --print skips writing.           |
-|                     | --print                                     |                                                              |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| onyx-py schema publish | --schema <path>                          | Reads ./schema/onyx.schema.json (or ./onyx.schema.json)      |
-|                        |                                           | by default; publishes to API.                               |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| onyx-py schema validate | --schema <path>                         | Validates local schema file (same default path as publish).  |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| onyx-py schema diff | --schema <path>                             | Diffs local schema (same default path as publish) vs remote. |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-| onyx-py gen         | --source api|file (default file)            | Generates models/tables/schema helpers.                      |
-|                     | --schema <path> (default ./schema/onyx.schema.json | Multiple --out allowed (repeat or space-separated).   |
-|                     |    or ./onyx.schema.json)                   | Default package inferred from final folder name of each      |
-|                     | --out <paths...> (default ./onyx)           | --out when --package is omitted.                             |
-|                     | --package <name>                            |                                                              |
-|                     | --timestamps datetime|string|number         | Default timestamps: datetime.                                |
-+---------------------+---------------------------------------------+--------------------------------------------------------------+
-```
 
 ## Release workflow
 
@@ -933,4 +861,4 @@ MIT © Onyx Dev Tools. See [LICENSE](./LICENSE).
 
 ---
 
-> **Keywords:** Onyx Database Python SDK, Onyx Cloud Database, Onyx NoSQL Graph Database client, Python query builder, tables helper, schema code generation, typed database client, Pydantic models, streaming, schema CLI
+> **Keywords:** Onyx Database Python SDK, Onyx Cloud Database, Onyx NoSQL Graph Database client, Python query builder, tables helper, typed database client, Pydantic models, streaming, schema API

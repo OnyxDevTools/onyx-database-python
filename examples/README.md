@@ -2,6 +2,15 @@
 
 Run these examples from the repo root after configuring credentials (env vars or `config/onyx-database.json`). Each script uses `onyx_database` with `from_table` and the same query/save patterns shown in the TypeScript SDK.
 
+Before running, install the external **Onyx CLI** and generate the local stubs the examples import:
+
+```bash
+brew tap OnyxDevTools/onyx-cli
+brew install onyx-cli
+onyx schema get onyx.schema.json
+onyx gen --python --source api --out ./onyx
+```
+
 Examples are grouped by feature area:
 
 - `ai/` – Onyx AI chat completions and models
