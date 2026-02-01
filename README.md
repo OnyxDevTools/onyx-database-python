@@ -38,6 +38,8 @@ Python client SDK for **Onyx Cloud Database** — a small, typed, builder-patter
 3. **Install the SDK** in your project:
 
    ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
    pip install onyx-database
    ```
 
