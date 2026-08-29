@@ -1,6 +1,6 @@
 [project]
 name = "onyx-database"
-version = "2.2.0"
+version = "2.3.0"
 description = "Python client SDK for Onyx Cloud Database (builder-pattern API and schema helpers)"
 readme = "README.md"
 requires-python = ">=3.11"

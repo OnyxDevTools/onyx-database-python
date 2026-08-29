@@ -173,6 +173,10 @@ class OnyxDatabase:
         return QueryBuilder(self, None, partition=self._default_partition).select(*fields)
 
     def search(self, query_text: str, min_score: Optional[float] = None) -> QueryBuilder:
+        if not isinstance(query_text, str):
+            raise TypeError(
+                "database-wide search supports text only; use a table query for vector search"
+            )
         return QueryBuilder(self, "ALL", partition=self._default_partition).search(query_text, min_score)
 
     def cascade(self, relationships: str) -> _Cascade:

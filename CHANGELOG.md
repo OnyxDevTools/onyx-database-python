@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.0 - 2026-08-29
+
+- Added typed, hard-bounded native `CANDIDATES`, `SEARCH_CANDIDATES`, and
+  `HNSW_CANDIDATES` query helpers to sync and async builders.
+- Added lossless semantic-signature and HNSW wire validation, including signed
+  64-bit calibration identifiers, mixed-radix bucket checks, vector/work bounds,
+  and sole-root admission enforcement.
+- Added the missing public `NOT_BETWEEN` operator/helper so the Python SDK now
+  covers every Cloud query operator.
+
 ## 2.2.0 - 2026-08-29
 
 - Added sync and async `fenced_save`, `fenced_delete_where`, and `fenced_update_where` helpers for the

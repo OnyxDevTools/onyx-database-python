@@ -1,6 +1,11 @@
 import unittest
 
-from onyx_database.helpers.conditions import is_null, not_null, search as search_condition
+from onyx_database.helpers.conditions import (
+    is_null,
+    not_between,
+    not_null,
+    search as search_condition,
+)
 from onyx_database.onyx import OnyxDatabase
 from onyx_database.query_builder import QueryBuilder
 
@@ -67,6 +72,16 @@ class SearchTests(unittest.TestCase):
 
 
 class SearchHelperTests(unittest.TestCase):
+    def test_not_between_helper_shape(self):
+        self.assertEqual(
+            not_between("score", 10, 20),
+            {
+                "field": "score",
+                "operator": "NOT_BETWEEN",
+                "value": [10, 20],
+            },
+        )
+
     def test_search_helper_shape(self):
         cond = search_condition("text", 1.5)
         self.assertEqual(cond["field"], "__full_text__")

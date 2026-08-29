@@ -6,7 +6,14 @@ from typing import Any, Dict, List, Optional
 
 from .query_results import QueryResults
 from .types import Sort
-from .helpers.conditions import search as search_condition
+from .helpers.conditions import (
+    approximate_candidates as approximate_candidates_condition,
+    approximate_search as approximate_search_condition,
+    hnsw_candidates as hnsw_candidates_condition,
+    search as search_condition,
+)
+
+_CANDIDATE_OPERATORS = {"CANDIDATES", "SEARCH_CANDIDATES", "HNSW_CANDIDATES"}
 
 
 def _flatten_strings(values) -> List[str]:
@@ -40,6 +47,21 @@ def _normalize_condition(condition: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _candidate_operator(condition: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not condition:
+        return None
+    if condition.get("conditionType") == "SingleCondition":
+        operator = condition.get("criteria", {}).get("operator")
+        return operator if operator in _CANDIDATE_OPERATORS else None
+    conditions = condition.get("conditions")
+    if isinstance(conditions, list):
+        for child in conditions:
+            operator = _candidate_operator(child)
+            if operator is not None:
+                return operator
+    return None
+
+
 class QueryBuilder:
     def __init__(self, executor, table: Optional[str] = None, partition: Optional[str] = None):
         self._exec = executor
@@ -61,6 +83,27 @@ class QueryBuilder:
         self._on_item_updated = None
         self._on_item_deleted = None
         self._on_item = None
+        self._candidate_root_operator: Optional[str] = None
+
+    def _require_composable_root(self):
+        if self._candidate_root_operator is not None:
+            raise ValueError(f"{self._candidate_root_operator} must be the sole root criterion")
+
+    def _require_mutable_root(self, operation: str):
+        if self._candidate_root_operator is not None:
+            raise ValueError(
+                f"{self._candidate_root_operator} is read-only and cannot execute {operation}"
+            )
+
+    def _adopt_candidate_root(self, condition: Dict[str, Any]) -> bool:
+        operator = _candidate_operator(condition)
+        if operator is None:
+            return False
+        if self._conditions is not None or condition.get("conditionType") != "SingleCondition":
+            raise ValueError(f"{operator} must be the sole root criterion")
+        self._conditions = condition
+        self._candidate_root_operator = operator
+        return True
 
     def ensure_table(self) -> str:
         if not self._table:
@@ -122,8 +165,11 @@ class QueryBuilder:
         return self
 
     def where(self, condition):
+        self._require_composable_root()
         cond = _normalize_condition(condition)
         if not cond:
+            return self
+        if self._adopt_candidate_root(cond):
             return self
         if not self._conditions:
             self._conditions = cond
@@ -135,8 +181,29 @@ class QueryBuilder:
             }
         return self
 
-    def search(self, query_text: str, min_score: Optional[float] = None):
-        cond = _normalize_condition(search_condition(query_text, min_score))
+    def search(
+        self,
+        query_text_or_search: Any,
+        min_score: Optional[float] = None,
+        *,
+        semantic: Any = None,
+        nearby_bucket_radius: Optional[int] = None,
+        max_candidates: Optional[int] = None,
+        require_all_terms: Optional[bool] = None,
+    ):
+        """Add an exact native text, semantic, or hybrid search predicate."""
+
+        self._require_composable_root()
+        cond = _normalize_condition(
+            search_condition(
+                query_text_or_search,
+                min_score,
+                semantic=semantic,
+                nearby_bucket_radius=nearby_bucket_radius,
+                max_candidates=max_candidates,
+                require_all_terms=require_all_terms,
+            )
+        )
         if not cond:
             return self
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
@@ -151,9 +218,60 @@ class QueryBuilder:
             self._conditions = cond
         return self
 
+    def approximate_search(
+        self,
+        query_text_or_search: Any,
+        min_score: Any = None,
+        *,
+        max_candidates: int = 1_000,
+        require_all_terms: bool = True,
+    ):
+        """Seed a bounded lexical candidate request as the sole root criterion."""
+
+        if self._conditions is not None:
+            raise ValueError("SEARCH_CANDIDATES must be the sole root criterion")
+        self._conditions = _normalize_condition(
+            approximate_search_condition(
+                query_text_or_search,
+                min_score,
+                max_candidates=max_candidates,
+                require_all_terms=require_all_terms,
+            )
+        )
+        self._candidate_root_operator = "SEARCH_CANDIDATES"
+        return self
+
+    def hnsw_candidates(self, search_query: Any):
+        """Seed a bounded native-HNSW request as the sole root criterion."""
+
+        if self._conditions is not None:
+            raise ValueError("HNSW_CANDIDATES must be the sole root criterion")
+        self._conditions = _normalize_condition(hnsw_candidates_condition(search_query))
+        self._candidate_root_operator = "HNSW_CANDIDATES"
+        return self
+
+    def approximate_candidates(
+        self,
+        attribute: str,
+        value_or_values: Any,
+        max_candidates: int = 1_000,
+    ):
+        """Seed bounded ordinary-index admission as the sole root criterion."""
+
+        if self._conditions is not None:
+            raise ValueError("CANDIDATES must be the sole root criterion")
+        self._conditions = _normalize_condition(
+            approximate_candidates_condition(attribute, value_or_values, max_candidates)
+        )
+        self._candidate_root_operator = "CANDIDATES"
+        return self
+
     def and_(self, condition):
+        self._require_composable_root()
         cond = _normalize_condition(condition)
         if not cond:
+            return self
+        if self._adopt_candidate_root(cond):
             return self
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
@@ -172,8 +290,11 @@ class QueryBuilder:
         return self.and_(condition)
 
     def or_(self, condition):
+        self._require_composable_root()
         cond = _normalize_condition(condition)
         if not cond:
+            return self
+        if self._adopt_candidate_root(cond):
             return self
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "OR":
             self._conditions["conditions"].append(cond)
@@ -306,11 +427,13 @@ class QueryBuilder:
         return records[0] if records else None
 
     def delete(self):
+        self._require_mutable_root("delete")
         if self._mode != "select":
             raise ValueError("delete() is only applicable in select mode.")
         return self._exec.delete_by_query(self.ensure_table(), self.to_select_query(), self._partition)
 
     def update(self):
+        self._require_mutable_root("update")
         if self._mode != "update":
             raise ValueError("Call set_updates(...) before update().")
         return self._exec.update(self.ensure_table(), self.to_update_query(), self._partition)

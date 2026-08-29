@@ -258,6 +258,75 @@ class EntityRouteOptInTests(unittest.TestCase):
         self.assertTrue(all(call[4] is WireFormat.MESSAGE_PACK for call in fake.calls[:8]))
         self.assertIs(fake.calls[8][4], WireFormat.JSON)
 
+    def test_sync_schema_publish_stays_json_and_preserves_native_index_metadata(self):
+        db = OnyxDatabase(
+            {
+                "base_url": "https://api.example.com",
+                "database_id": "db",
+                "api_key": "key",
+                "api_secret": "secret",
+                "wire_format": "msgpack",
+            }
+        )
+
+        class FakeRequests:
+            def __init__(self):
+                self.calls = []
+
+            def request(
+                self,
+                method,
+                path,
+                body=None,
+                extra_headers=None,
+                *,
+                wire_format=WireFormat.JSON,
+            ):
+                self.calls.append((method, path, body, extra_headers, wire_format))
+                return {"valid": True}
+
+        schema = {
+            "databaseId": "placeholder",
+            "entities": [
+                {
+                    "name": "ActiveDocumentChunk",
+                    "type": "SEARCHABLE",
+                    "entityText": "generated text must not replace structured metadata",
+                    "indexes": [
+                        {"name": "corpusId", "type": "DEFAULT"},
+                        {"name": "title", "type": "VECTOR"},
+                        {"name": "content", "type": "VECTOR"},
+                    ],
+                }
+            ],
+        }
+        fake = FakeRequests()
+        db._http = fake
+
+        db.validate_schema(schema)
+        db.update_schema(schema, publish=True)
+
+        self.assertEqual(
+            [
+                ("POST", "/schemas/db/validate"),
+                ("PUT", "/schemas/db?publish=true"),
+            ],
+            [(call[0], call[1]) for call in fake.calls],
+        )
+        self.assertTrue(all(call[4] is WireFormat.JSON for call in fake.calls))
+        for call in fake.calls:
+            entity = call[2]["entities"][0]
+            self.assertNotIn("entityText", entity)
+            self.assertEqual("SEARCHABLE", entity["type"])
+            self.assertEqual(
+                {
+                    "corpusId": "DEFAULT",
+                    "title": "VECTOR",
+                    "content": "VECTOR",
+                },
+                {index["name"]: index["type"] for index in entity["indexes"]},
+            )
+
     def test_sync_atomic_create_rejects_batches_and_old_servers_fail_closed(self):
         db = OnyxDatabase(
             {

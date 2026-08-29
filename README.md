@@ -466,7 +466,7 @@ Importable helpers for conditions and sort:
 from onyx_database import (
     eq, neq, within, not_within,
     in_op, not_in,
-    between,
+    between, not_between,
     gt, gte, lt, lte,
     like, not_like, contains, not_contains,
     starts_with, not_starts_with, matches, not_matches,
@@ -477,6 +477,39 @@ from onyx_database import (
 
 - Prefer `within` / `not_within` for inclusion checks (supports arrays, comma-separated strings, or inner queries).
 - `in_op` / `not_in` remain available for backward compatibility and are exact aliases.
+
+Native candidate channels are explicit and physically bounded:
+
+```py
+from onyx_database import hnsw_search_query
+
+lexical = (
+    db.from_table("ActiveDocumentChunk")
+    .in_partition("revision-7")
+    .approximate_search("customer success", max_candidates=128)
+    .limit(20)
+    .list()
+)
+
+semantic = (
+    db.from_table("ChunkAttentionHash")
+    .in_partition("revision-7")
+    .hnsw_candidates(
+        hnsw_search_query(
+            calibration_id=73,
+            vector=prompt_embedding,
+            max_candidates=256,
+            ef_search=1024,
+        )
+    )
+    .limit(20)
+    .list()
+)
+```
+
+`CANDIDATES`, `SEARCH_CANDIDATES`, and `HNSW_CANDIDATES` must be the sole root
+criterion. Candidate results are approximate; exactly rerank them when the
+full-precision vectors are available.
 
 Aggregate / string helpers for `select()` expressions:
 
@@ -529,7 +562,7 @@ roles_missing_permission = (
 )
 ```
 
-### Native bounded full-text search
+### Native vector-managed search
 
 Use `.search(...)` on a builder or the `search` predicate helper to add a `MATCHES` condition against the `__full_text__` pseudo-field. `db.search(...)` sets `table = "ALL"` and seeds a query builder with that condition (extras like `partition`, `pageSize`, `nextPage` remain querystring params when provided).
 
@@ -668,6 +701,99 @@ Example request bodies emitted by the SDK:
   "table": "Table"
 }
 ```
+
+For table-specific lexical, semantic, or hybrid search, build a validated
+`VectorSearchQuery`. The helper accepts Python snake_case arguments and emits the
+Cloud API's camelCase wire fields:
+
+```py
+from onyx_database import semantic_vector_signature, vector_search_query
+
+signature = semantic_vector_signature(
+    calibration_id=-7909761245221418085,
+    bucket_id=5,
+    cells=[1, 2],
+    cell_counts=[2, 3],
+    fingerprint=["0x0123456789abcdef"],
+    boundary_confidence=0.2,
+)
+
+hybrid = vector_search_query(
+    text="storm warning",
+    semantic=signature,
+    min_score=0.15,
+    nearby_bucket_radius=2,
+    max_candidates=500,
+    require_all_terms=False,
+)
+
+db.from_table(tables.Document).search(hybrid).limit(20).list()
+```
+
+`VectorSearchQuery` requires text and/or a semantic signature. Its defaults are
+`nearbyBucketRadius=1`, `maxCandidates=1000`, and `requireAllTerms=true`;
+`maxCandidates` is bounded to `1..5000`. Semantic helpers validate the mixed-radix
+bucket identifier, compute or verify exactly four fingerprint bands, keep the
+non-zero signed 64-bit calibration identifier as decimal text, and emit fingerprint
+words as fixed-width unsigned hexadecimal strings.
+
+Three explicit candidate APIs provide physically bounded admission for downstream
+reranking:
+
+```py
+from onyx_database import hnsw_search_query
+
+# Bounded lexical admission from a SEARCHABLE table.
+lexical = (
+    db.from_table(tables.Document)
+      .in_partition("corpus-a")
+      .approximate_search(
+          "storm warning",
+          min_score=0.1,
+          max_candidates=250,
+          require_all_terms=False,
+      )
+      .limit(20)
+      .list()
+)
+
+# Native HNSW nearest-neighbor admission.
+hnsw = hnsw_search_query(
+    calibration_id=-7909761245221418085,
+    vector=[0.25, -0.5, 0.75],
+    max_candidates=100,
+    ef_search=400,
+    min_score=0.2,
+)
+neighbors = (
+    db.from_table(tables.Document)
+      .in_partition("corpus-a")
+      .hnsw_candidates(hnsw)
+      .list()
+)
+
+# Bounded EQUAL/IN-style admission from an ordinary secondary index.
+routed = (
+    db.from_table(tables.Document)
+      .in_partition("corpus-a")
+      .approximate_candidates("tenantId", ["tenant-a", "tenant-b"], 200)
+      .list()
+)
+```
+
+`SEARCH_CANDIDATES`, `HNSW_CANDIDATES`, and `CANDIDATES` are positive, read-only,
+sole-root criteria. The builders reject attempts to combine them with `where`,
+`and_`, `or_`, or `search` in either call order. Partitioned tables require one
+concrete partition. HNSW vectors contain `1..16384` finite values with a non-zero
+norm; `maxCandidates` is `1..5000`, `efSearch` is at least `maxCandidates` and at
+most `20000`, and `minScore` is optional in `[-1, 1]`. The same methods and wire
+validation are available on `AsyncQueryBuilder`.
+
+Condition forms are exported as `approximate_search`, `hnsw_candidates`, and
+`approximate_candidates`. Use them only as the sole condition, for example
+`.where(approximate_search("storm", max_candidates=250))`. Database-wide
+`db.search(...)` remains the text-only API because the `ALL` route performs its own
+bounded lexical fan-out.
 
 ---
 
