@@ -1,5 +1,6 @@
 """Public entrypoint for the Onyx Database Python SDK."""
 
+from .config import WireFormat
 from .errors import (
     OnyxConfigError,
     OnyxHTTPError,
@@ -59,6 +60,7 @@ __all__ = [
     "OnyxAsyncFacade",
     "onyx",
     "onyx_async",
+    "WireFormat",
     "OnyxConfigError",
     "OnyxHTTPError",
     "OnyxUnauthorizedError",

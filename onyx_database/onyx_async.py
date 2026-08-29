@@ -7,10 +7,21 @@ from typing import Any, Dict, Iterable, Optional
 
 from .ai import iter_sse_async
 from .config import ResolvedConfig, clear_config_cache, resolve_config
+from .entity_wire import (
+    MESSAGE_PACK_ACCEPT,
+    MESSAGE_PACK_MEDIA_TYPE,
+    pack_entity,
+    require_concrete_partition,
+    require_fenced_entities,
+    require_fenced_updates,
+    require_mutation_guard,
+    require_query_condition,
+    require_single_entity,
+)
 from .errors import OnyxHTTPError
-from .http import HttpClient, AsyncHttpClient, serialize_dates
+from .http import AsyncHttpClient, HttpClient, serialize_dates
 from .query_builder_async import AsyncQueryBuilder
-from .stream import open_json_lines_stream
+from .stream import open_entity_stream, open_json_lines_stream
 from .types import SchemaDiff
 
 
@@ -135,7 +146,11 @@ class OnyxDatabaseAsync:
         self._database_id = self._resolved.database_id
         self._default_partition = self._resolved.partition
         self._default_model = self._resolved.default_model
+        self._wire_format = self._resolved.wire_format
         self.ai = _AiNamespaceAsync(self)
+
+    async def _entity_request(self, method: str, path: str, body: Any = None) -> Any:
+        return await self._http.request(method, path, body, wire_format=self._wire_format)
 
     def _maybe_apply_model(self, table: str, value: Any) -> Any:
         model = self._model_map.get(table)
@@ -162,6 +177,78 @@ class OnyxDatabaseAsync:
         return _CascadeAsync(self, rels)
 
     # CRUD helpers
+    async def create(self, table: str, entity: Any) -> Any:
+        """Atomically create one entity, failing with HTTP 409 when its key exists."""
+
+        path = f"/data/{self._database_id}/{table}"
+        return await self._entity_request("POST", path, require_single_entity(entity))
+
+    async def _fenced_mutation(self, table: str, payload: Dict[str, Any]) -> Any:
+        """Issue exactly one server-side fenced mutation; never read, retry, or fall back."""
+
+        path = f"/data/{self._database_id}/{table}/fenced"
+        return await self._entity_request("POST", path, payload)
+
+    async def fenced_save(
+        self,
+        table: str,
+        entity_or_entities: Any,
+        *,
+        guard: Dict[str, Any],
+    ) -> Any:
+        """Save 1..500 same-partition entities only while ``guard`` still matches."""
+
+        return await self._fenced_mutation(
+            table,
+            {
+                "guard": require_mutation_guard(guard),
+                "operation": "SAVE",
+                "entities": require_fenced_entities(entity_or_entities),
+            },
+        )
+
+    async def fenced_delete_where(
+        self,
+        table: str,
+        *,
+        partition: str,
+        filters: Dict[str, Any],
+        guard: Dict[str, Any],
+    ) -> Any:
+        """Delete at most 500 rows with one POST; repeat at 500 for a fresh guard check."""
+
+        return await self._fenced_mutation(
+            table,
+            {
+                "guard": require_mutation_guard(guard),
+                "operation": "DELETE",
+                "partition": require_concrete_partition(partition),
+                "filters": require_query_condition(filters),
+            },
+        )
+
+    async def fenced_update_where(
+        self,
+        table: str,
+        *,
+        partition: str,
+        filters: Dict[str, Any],
+        updates: Dict[str, Any],
+        guard: Dict[str, Any],
+    ) -> Any:
+        """Conditionally update at most one row under one server-side guard check."""
+
+        return await self._fenced_mutation(
+            table,
+            {
+                "guard": require_mutation_guard(guard),
+                "operation": "UPDATE",
+                "partition": require_concrete_partition(partition),
+                "filters": require_query_condition(filters),
+                "updates": require_fenced_updates(updates),
+            },
+        )
+
     async def save(self, table: str, entity_or_entities: Any, options: Optional[Dict[str, Any]] = None) -> Any:
         params = []
         opts = options or {}
@@ -170,7 +257,7 @@ class OnyxDatabaseAsync:
             params.append(f"relationships={','.join(map(str, rels))}")
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/{table}{query}"
-        return await self._http.request("PUT", path, serialize_dates(entity_or_entities))
+        return await self._entity_request("PUT", path, entity_or_entities)
 
     async def batch_save(self, table: str, entities: Iterable[Any], batch_size: int = 1000, options: Optional[Dict[str, Any]] = None) -> None:
         chunk: list = []
@@ -192,7 +279,7 @@ class OnyxDatabaseAsync:
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/{table}/{primary_key}{query}"
         try:
-            res = await self._http.request("GET", path)
+            res = await self._entity_request("GET", path)
             return self._maybe_apply_model(table, res)
         except OnyxHTTPError as err:
             if err.status == 404:
@@ -210,7 +297,7 @@ class OnyxDatabaseAsync:
             params.append(f"relationships={','.join(rels)}")
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/{table}/{primary_key}{query}"
-        await self._http.request("DELETE", path)
+        await self._entity_request("DELETE", path)
         return True
 
     # Query executor (used by AsyncQueryBuilder)
@@ -221,7 +308,7 @@ class OnyxDatabaseAsync:
             params.append(f"partition={p}")
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/query/count/{table}{query}"
-        return int(await self._http.request("PUT", path, serialize_dates(select)))
+        return int(await self._entity_request("PUT", path, select))
 
     async def query_page(self, table: str, select: Dict[str, Any], options: Dict[str, Any]) -> Dict[str, Any]:
         params = []
@@ -234,7 +321,7 @@ class OnyxDatabaseAsync:
             params.append(f"partition={partition}")
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/query/{table}{query}"
-        res = await self._http.request("PUT", path, serialize_dates(select))
+        res = await self._entity_request("PUT", path, select)
         if isinstance(res, dict) and "records" in res:
             return res
         return {"records": res or [], "nextPage": None}
@@ -246,7 +333,7 @@ class OnyxDatabaseAsync:
             params.append(f"partition={p}")
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/query/delete/{table}{query}"
-        return await self._http.request("PUT", path, serialize_dates(select))
+        return await self._entity_request("PUT", path, select)
 
     async def update(self, table: str, update_query: Dict[str, Any], partition: Optional[str]) -> Any:
         params = []
@@ -255,7 +342,7 @@ class OnyxDatabaseAsync:
             params.append(f"partition={p}")
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/data/{self._database_id}/query/update/{table}{query}"
-        return await self._http.request("PUT", path, serialize_dates(update_query))
+        return await self._entity_request("PUT", path, update_query)
 
     def stream(self, table: str, select: Dict[str, Any], include_query_results: bool, keep_alive: bool, handlers: Dict[str, Any]):
         params = []
@@ -264,8 +351,13 @@ class OnyxDatabaseAsync:
         if keep_alive:
             params.append("keepAlive=true")
         query = f"?{'&'.join(params)}" if params else ""
-        hdrs = self._http_sync.headers({"Accept": "application/x-ndjson", "Content-Type": "application/json"})
-        body = json.dumps(serialize_dates(select))
+        use_message_pack = self._wire_format.value == "msgpack"
+        if use_message_pack:
+            hdrs = self._http_sync.headers({"Accept": MESSAGE_PACK_ACCEPT, "Content-Type": MESSAGE_PACK_MEDIA_TYPE})
+            body: str | bytes = pack_entity(select)
+        else:
+            hdrs = self._http_sync.headers({"Accept": "application/x-ndjson", "Content-Type": "application/json"})
+            body = json.dumps(serialize_dates(select))
 
         def opener():
             return self._http_sync.open_stream(
@@ -275,6 +367,8 @@ class OnyxDatabaseAsync:
                 headers=hdrs,
             )
 
+        if use_message_pack:
+            return open_entity_stream(opener, handlers=handlers)
         return open_json_lines_stream(opener, handlers=handlers)
 
     # Documents

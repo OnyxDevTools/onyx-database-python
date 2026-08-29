@@ -33,7 +33,10 @@ def _normalize_condition(condition: Any) -> Optional[Dict[str, Any]]:
         value = condition.get("value")
         if hasattr(value, "to_query_object"):
             value = value.to_query_object()
-        return {"conditionType": "SingleCondition", "criteria": {**condition, "value": value}}
+        criteria = {**condition, "value": value}
+        if condition["operator"] in {"IS_NULL", "NOT_NULL"}:
+            criteria.pop("value", None)
+        return {"conditionType": "SingleCondition", "criteria": criteria}
     return None
 
 

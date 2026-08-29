@@ -94,11 +94,11 @@ def not_starts_with(field: str, prefix: str) -> Condition:
 
 
 def is_null(field: str) -> Condition:
-    return _condition(field, "IS_NULL")
+    return {"field": field, "operator": "IS_NULL"}
 
 
 def not_null(field: str) -> Condition:
-    return _condition(field, "NOT_NULL")
+    return {"field": field, "operator": "NOT_NULL"}
 
 
 # Convenience aliases mirroring TS containsIgnoreCase/notContainsIgnoreCase

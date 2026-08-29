@@ -68,6 +68,7 @@ class HttpTests(unittest.TestCase):
             (429, OnyxRateLimitedError),
             (500, OnyxServerError),
             (400, OnyxClientError),
+            (409, OnyxClientError),
         ]
         for status, err_cls in cases:
             http = FakeHttp(
@@ -76,6 +77,18 @@ class HttpTests(unittest.TestCase):
             )
             with self.assertRaises(err_cls):
                 http.request("GET", "/data/test")
+
+    def test_mutating_post_is_never_retried_when_route_is_missing(self):
+        http = FakeHttp(
+            [(404, "not found", {"Content-Type": "application/json"}, b'{"error":{"message":"missing"}}')],
+            max_retries=5,
+            retry_backoff_seconds=0,
+        )
+
+        with self.assertRaises(OnyxNotFoundError):
+            http.request("POST", "/data/db/User", {"id": "one"})
+
+        self.assertEqual(1, http.calls)
 
     def test_timeout_raises_timeout_error(self):
         err = urllib.error.URLError("timed out")

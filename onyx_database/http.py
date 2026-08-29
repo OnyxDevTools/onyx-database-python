@@ -1,7 +1,8 @@
-"""HTTP client wrapper with retry and logging behavior (no third-party deps)."""
+"""HTTP client wrapper with retry, logging, and entity wire negotiation."""
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import os
@@ -10,17 +11,23 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
-import asyncio
 
+from .config import WireFormat
+from .entity_wire import (
+    MESSAGE_PACK_ACCEPT,
+    MESSAGE_PACK_MEDIA_TYPE,
+    pack_entity,
+    unpack_entity,
+)
 from .errors import (
+    OnyxClientError,
     OnyxConfigError,
     OnyxHTTPError,
-    OnyxUnauthorizedError,
     OnyxNotFoundError,
     OnyxRateLimitedError,
-    OnyxClientError,
     OnyxServerError,
     OnyxTimeoutError,
+    OnyxUnauthorizedError,
 )
 
 
@@ -116,33 +123,55 @@ class HttpClient:
         redacted = {**headers, "x-onyx-secret": "[REDACTED]"}
         print("Headers:", redacted)
         if body is not None:
-            print(body if isinstance(body, str) else json.dumps(body))
+            if isinstance(body, str):
+                print(body)
+            elif isinstance(body, bytes):
+                print(f"<{len(body)} bytes>")
+            else:
+                try:
+                    print(json.dumps(serialize_dates(body)))
+                except Exception:
+                    print(repr(body))
 
-    def _log_response(self, status: int, reason: str, raw: str) -> None:
+    def _log_response(
+        self,
+        status: int,
+        reason: str,
+        raw: str | bytes,
+        content_type: str = "",
+    ) -> None:
         if not self.response_logging_enabled:
             return
         print(f"{status} {reason}".strip())
-        if raw.strip():
+        if isinstance(raw, bytes):
+            if raw:
+                if content_type.lower().split(";", 1)[0].strip() == MESSAGE_PACK_MEDIA_TYPE:
+                    print(f"<{len(raw)} MessagePack bytes>")
+                else:
+                    print(raw.decode("utf-8", errors="replace"))
+        elif raw.strip():
             print(raw)
 
-    def _do_request(self, method: str, url: str, headers: Dict[str, str], payload: Optional[bytes]) -> Tuple[int, str, Dict[str, str], str]:
+    def _do_request(
+        self,
+        method: str,
+        url: str,
+        headers: Dict[str, str],
+        payload: Optional[bytes],
+    ) -> Tuple[int, str, Dict[str, str], bytes]:
         req = urllib.request.Request(url, data=payload, headers=headers, method=method)
         try:
             timeout = self.request_timeout_seconds
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw_bytes = resp.read()
-                encoding = resp.headers.get_content_charset() or "utf-8"
-                raw_text = raw_bytes.decode(encoding, errors="replace")
                 status = resp.getcode() or 0
                 reason = resp.reason or ""
                 hdrs = {k: v for k, v in resp.headers.items()}
-                return status, reason, hdrs, raw_text
+                return status, reason, hdrs, raw_bytes
         except urllib.error.HTTPError as err:
             raw_bytes = err.read()
-            encoding = err.headers.get_content_charset() or "utf-8"
-            raw_text = raw_bytes.decode(encoding, errors="replace")
             hdrs = {k: v for k, v in (err.headers or {}).items()}
-            return err.code or 0, err.reason or "", hdrs, raw_text
+            return err.code or 0, err.reason or "", hdrs, raw_bytes
         except urllib.error.URLError as err:
             # Detect timeouts explicitly
             message = str(err.reason or err)
@@ -156,20 +185,32 @@ class HttpClient:
         path: str,
         body: Any = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        *,
+        wire_format: WireFormat | str = WireFormat.JSON,
     ) -> Any:
         if not path.startswith("/"):
             raise OnyxConfigError("path must start with /")
         url = f"{self.base_url}{path}"
         headers = self.headers(extra_headers)
+        selected_wire_format = WireFormat.parse(wire_format)
+        use_message_pack = selected_wire_format is WireFormat.MESSAGE_PACK
 
         payload: Optional[bytes] = None
         if body is not None:
-            if isinstance(body, (str, bytes)):
+            if use_message_pack:
+                headers["Accept"] = MESSAGE_PACK_ACCEPT
+                headers["Content-Type"] = MESSAGE_PACK_MEDIA_TYPE
+                payload = pack_entity(body)
+            elif isinstance(body, (str, bytes)):
                 payload = body if isinstance(body, bytes) else body.encode("utf-8")
             else:
                 payload = json.dumps(serialize_dates(body)).encode("utf-8")
-        elif "Content-Type" in headers and extra_headers is None:
-            headers.pop("Content-Type", None)
+        else:
+            if use_message_pack:
+                headers["Accept"] = MESSAGE_PACK_ACCEPT
+                headers.pop("Content-Type", None)
+            elif "Content-Type" in headers and extra_headers is None:
+                headers.pop("Content-Type", None)
 
         self._log_request(method, url, headers, body if body is not None else "")
 
@@ -180,13 +221,36 @@ class HttpClient:
         for attempt in range(max_attempts):
             status = 0
             reason = ""
-            raw = ""
+            raw: str | bytes = b""
             try:
                 status, reason, resp_headers, raw = self._do_request(method, url, headers, payload)
-                self._log_response(status, reason, raw)
-                content_type = resp_headers.get("Content-Type", "")
-                is_json = raw.strip() and ("application/json" in content_type or raw.strip().startswith(("{", "[")))
-                data = parse_json_allow_nan(raw) if is_json else raw
+                content_type = next(
+                    (value for key, value in resp_headers.items() if key.lower() == "content-type"),
+                    "",
+                )
+                self._log_response(status, reason, raw, content_type)
+                raw_bytes = raw if isinstance(raw, bytes) else raw.encode("utf-8")
+                is_message_pack = content_type.lower().split(";", 1)[0].strip() == MESSAGE_PACK_MEDIA_TYPE
+                if not raw_bytes:
+                    data = ""
+                    raw_text = ""
+                elif is_message_pack:
+                    data = unpack_entity(raw_bytes)
+                    raw_text = repr(raw_bytes)
+                else:
+                    encoding = "utf-8"
+                    match = re.search(r"charset=([^;\s]+)", content_type, re.IGNORECASE)
+                    if match:
+                        encoding = match.group(1).strip('"')
+                    try:
+                        raw_text = raw_bytes.decode(encoding, errors="replace")
+                    except LookupError:
+                        raw_text = raw_bytes.decode("utf-8", errors="replace")
+                    is_json = bool(raw_text.strip()) and (
+                        "application/json" in content_type.lower()
+                        or raw_text.strip().startswith(("{", "["))
+                    )
+                    data = parse_json_allow_nan(raw_text) if is_json else raw_text
                 if status < 200 or status >= 300:
                     msg = (
                         data.get("error", {}).get("message")
@@ -207,7 +271,7 @@ class HttpClient:
                         err_cls = OnyxServerError
                     elif status >= 400:
                         err_cls = OnyxClientError
-                    raise err_cls(str(msg), status, reason, data, raw)
+                    raise err_cls(str(msg), status, reason, data, raw_text)
                 return data
             except Exception as err:
                 last_error = err
@@ -227,14 +291,14 @@ class HttpClient:
         path: str,
         *,
         method: str = "PUT",
-        body: Optional[str] = None,
+        body: Optional[str | bytes] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> urllib.response.addinfourl:
         if not path.startswith("/"):
             raise OnyxConfigError("path must start with /")
         url = f"{self.base_url}{path}"
         hdrs = self.headers(headers)
-        payload = body.encode("utf-8") if body is not None else None
+        payload = body.encode("utf-8") if isinstance(body, str) else body
         req = urllib.request.Request(url, data=payload, headers=hdrs, method=method)
         try:
             return urllib.request.urlopen(req)
@@ -258,6 +322,11 @@ class AsyncHttpClient:
         path: str,
         body: Any = None,
         extra_headers: Optional[Dict[str, str]] = None,
+        *,
+        wire_format: WireFormat | str = WireFormat.JSON,
     ) -> Any:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, lambda: self._sync.request(method, path, body, extra_headers))
+        return await loop.run_in_executor(
+            None,
+            lambda: self._sync.request(method, path, body, extra_headers, wire_format=wire_format),
+        )

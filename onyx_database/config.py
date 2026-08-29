@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
-import time
 
 from .errors import OnyxConfigError
 
@@ -18,6 +19,24 @@ DEFAULT_CACHE_TTL_SECONDS = 5 * 60
 DEFAULT_TIMEOUT_SECONDS = None  # keep default behavior (blocking) unless set
 DEFAULT_MAX_RETRIES = None  # fall back to HttpClient logic (GET/query -> 3)
 DEFAULT_RETRY_BACKOFF_SECONDS = 0.1
+
+
+class WireFormat(str, Enum):
+    """Wire format used by entity CRUD, query, and change-stream routes."""
+
+    JSON = "json"
+    MESSAGE_PACK = "msgpack"
+
+    @classmethod
+    def parse(cls, value: Any) -> "WireFormat":
+        if isinstance(value, cls):
+            return value
+        normalized = str(value or cls.JSON.value).strip().lower().replace("_", "").replace("-", "")
+        if normalized == "json":
+            return cls.JSON
+        if normalized in {"msgpack", "messagepack"}:
+            return cls.MESSAGE_PACK
+        raise OnyxConfigError("wire_format must be 'json' or 'msgpack'")
 
 
 def _drop_none(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -72,6 +91,7 @@ def _normalize_config(raw: Dict[str, Any]) -> Dict[str, Any]:
     request_timeout_seconds = raw.get("requestTimeoutSeconds") or raw.get("request_timeout_seconds")
     max_retries = raw.get("maxRetries") or raw.get("max_retries")
     retry_backoff_seconds = raw.get("retryBackoffSeconds") or raw.get("retry_backoff_seconds")
+    wire_format = raw.get("wireFormat") or raw.get("wire_format")
     return _drop_none(
         {
             "base_url": base_url,
@@ -87,6 +107,7 @@ def _normalize_config(raw: Dict[str, Any]) -> Dict[str, Any]:
             "request_timeout_seconds": request_timeout_seconds,
             "max_retries": max_retries,
             "retry_backoff_seconds": retry_backoff_seconds,
+            "wire_format": wire_format,
         }
     )
 
@@ -107,6 +128,7 @@ def _read_env(target_id: Optional[str]) -> Dict[str, Any]:
             "request_timeout_seconds": env.get("ONYX_REQUEST_TIMEOUT_SECONDS"),
             "max_retries": env.get("ONYX_MAX_RETRIES"),
             "retry_backoff_seconds": env.get("ONYX_RETRY_BACKOFF_SECONDS"),
+            "wire_format": env.get("ONYX_DATABASE_WIRE_FORMAT") or env.get("ONYX_WIRE_FORMAT"),
         }
     )
     return data
@@ -147,6 +169,7 @@ class ResolvedConfig:
     request_timeout_seconds: Optional[float]
     max_retries: Optional[int]
     retry_backoff_seconds: Optional[float]
+    wire_format: WireFormat = WireFormat.JSON
 
 
 def clear_config_cache() -> None:
@@ -242,6 +265,7 @@ def resolve_config(explicit: Optional[Dict[str, Any]] = None) -> ResolvedConfig:
         request_timeout_seconds=timeout_seconds,
         max_retries=max_retries_int,
         retry_backoff_seconds=backoff_seconds,
+        wire_format=WireFormat.parse(merged.get("wire_format")),
     )
 
     _config_cache[cache_key] = {"value": resolved, "expires_at": time.time() + ttl_seconds}

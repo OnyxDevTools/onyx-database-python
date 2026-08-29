@@ -148,6 +148,7 @@ Set the following:
 - `ONYX_DEFAULT_MODEL` (defaults to `onyx`)
 - `ONYX_DATABASE_API_KEY`
 - `ONYX_DATABASE_API_SECRET`
+- `ONYX_DATABASE_WIRE_FORMAT` (`json` by default; set `msgpack` to opt in)
 
 ```py
 from onyx_database import onyx
@@ -178,6 +179,41 @@ db = onyx.init(
 - `request_logging_enabled` logs HTTP requests and JSON bodies.
 - `response_logging_enabled` logs HTTP responses and JSON bodies.
 - Setting `ONYX_DEBUG=true` enables both request/response logging and also logs which credential source was used.
+
+#### Optional MessagePack entity transport
+
+JSON remains the default. To reduce entity request and response sizes, opt in to the
+MessagePack v1 wire profile when initializing either the sync or async client:
+
+```py
+from onyx_database import WireFormat, onyx
+
+db = onyx.init(
+    database_id="YOUR_DATABASE_ID",
+    wire_format=WireFormat.MESSAGE_PACK,  # "msgpack" also works
+)
+```
+
+This setting applies only to entity save, find, delete, query, count, update,
+delete-by-query, and query-stream routes. Documents, schemas, secrets, and AI APIs
+continue to use JSON. Binary entity requests use the registered
+`application/vnd.msgpack` media type and accept JSON as a lower-priority response;
+the SDK always decodes the actual response `Content-Type`, so normal JSON error
+responses are preserved. There is no automatic mutation retry against a server that
+does not support the binary protocol.
+
+The portable profile supports nulls, booleans, signed 64-bit integers, finite
+floating-point values, UTF-8 strings, arrays, string-keyed maps, and ISO-formatted
+dates. It intentionally rejects MessagePack binary/extension values and applies
+bounded body, nesting, string, container, and node limits. Change streams are a
+sequence of self-delimiting MessagePack values; an initial null flush sentinel is
+ignored automatically.
+
+For repeatable local codec timings and byte-size comparisons, run:
+
+```bash
+python benchmarks/entity_wire_benchmark.py --records 100 --iterations 2000 --samples 7
+```
 
 ---
 
@@ -493,7 +529,7 @@ roles_missing_permission = (
 )
 ```
 
-### Full-text (Lucene) search
+### Native bounded full-text search
 
 Use `.search(...)` on a builder or the `search` predicate helper to add a `MATCHES` condition against the `__full_text__` pseudo-field. `db.search(...)` sets `table = "ALL"` and seeds a query builder with that condition (extras like `partition`, `pageSize`, `nextPage` remain querystring params when provided).
 
@@ -515,16 +551,16 @@ db.search("Text").list()                                      # sends "minScore"
 db.from_table(tables.User).where(search("text", 4.4)).and_(eq("status", "active")).list()
 ```
 
-Practical Lucene examples:
+Practical native full-text examples:
 
 ```py
-# Lucene phrase + boolean within one table
-lucene_query = '"product engineer" AND remote'
-db.from_table(tables.User).search(lucene_query, 0).list()
+# Phrase + boolean query within one table
+full_text_query = '"product engineer" AND remote'
+db.from_table(tables.User).search(full_text_query, 0).list()
 
 # All-table search with a phrase branch OR an email wildcard
-lucene_all_query = '("product manager" AND remote) OR email:*.ux*'
-db.search(lucene_all_query).list()
+all_tables_query = '("product manager" AND remote) OR email:*.ux*'
+db.search(all_tables_query).list()
 ```
 
 Example request bodies emitted by the SDK:
@@ -681,7 +717,95 @@ maybe_user = (
 )
 ```
 
-### 2) Save (create/update)
+### 2) Atomic create-only
+
+```py
+from onyx_database import OnyxClientError
+
+try:
+    created = db.create("User", {
+        "id": "user_123",
+        "email": "alice@example.com",
+        "status": "active",
+    })
+except OnyxClientError as error:
+    if error.status == 409:
+        print("user_123 already exists; the stored row was not changed")
+    else:
+        raise
+```
+
+`create(table, entity)` accepts exactly one entity and uses the server's atomic create-if-absent
+path. The sole winner receives the created entity; an existing stable identifier returns HTTP 409
+without an overwrite. It never retries through `save`, so an older server without the POST route
+fails closed. The async client exposes the same contract with `await db.create(...)`.
+
+### 2b) Fenced save/delete/update for lease-owned work
+
+Use a fenced mutation when a worker must not commit child rows after another worker has taken
+over its lease. The database locks the guard row and target partition together, then rechecks all
+`expected` fields before applying the mutation:
+
+```py
+guard = {
+    "table": "AttentionHeadRevision",
+    "id": "head-17",
+    "partition": "corpus-a",
+    "expected": {"generation": 8, "owner": "worker-a"},
+}
+
+result = db.fenced_save(
+    "ChunkAttentionHash",
+    chunk_hashes,                 # one entity or 1..500 same-partition entities
+    guard=guard,
+)
+
+deleted = db.fenced_delete_where(
+    "ChunkAttentionHash",
+    partition="corpus-a",        # one concrete target partition; never ALL
+    filters={
+        "conditionType": "SingleCondition",
+        "criteria": eq("revision", "old-revision"),
+    },
+    guard=guard,
+)
+
+activated = db.fenced_update_where(
+    "AttentionHead",
+    partition="corpus-a",
+    filters={
+        "conditionType": "CompoundCondition",
+        "operator": "AND",
+        "conditions": [
+            {"conditionType": "SingleCondition", "criteria": eq("headId", "head-17")},
+            {"conditionType": "SingleCondition", "criteria": eq("status", "STAGING")},
+        ],
+    },
+    updates={"status": "ACTIVE", "stagedRevisionId": ""},
+    guard=guard,
+)
+```
+
+All three methods return `{"applied": true, "affected": N}`. A missing or changed guard produces
+HTTP 409 and no target mutation. `filters` is the serialized `QueryCondition` shape shown above,
+not a raw field/value map. These POST operations do not retry, do not perform a client-side guard
+read, and do not fall back to an unfenced save/delete/update when an older server returns 404/405.
+`fenced_update_where` requires one concrete target partition, a serialized `QueryCondition`, and a
+non-empty update object. The server accepts a non-negated single condition or all-`AND` condition
+tree containing an identifier `EQUAL` criterion; `OR`, `NOT`, and candidate operators are rejected.
+It updates at most one row and reports `affected` as 0 or 1. Async
+parity is available through `await db.fenced_save(...)` and
+`await db.fenced_delete_where(...)` or `await db.fenced_update_where(...)`.
+
+One `fenced_delete_where` call deletes at most 500 matching rows and issues exactly one POST. To
+drain more, call it again while `affected == 500`; the server rechecks the guard on every batch.
+The SDK deliberately does not hide that ownership check inside an automatic retry loop.
+
+The fence prevents takeover from crossing an in-flight mutation. A multi-row save is still an
+ordered batch, not a rollback transaction: if storage fails on a later row, earlier rows may have
+committed and the request raises instead of returning `applied: true`.
+
+### 3) Save (create/update)
 
 ```py
 # Upsert a single user
@@ -701,7 +825,7 @@ db.save("User", [
 db.batch_save("User", large_user_array, batch_size=500)
 ```
 
-### 3) Delete (by primary key)
+### 4) Delete (by primary key)
 
 ```py
 db.delete("User", "user_125")
@@ -710,7 +834,7 @@ db.delete("User", "user_125")
 db.cascade("rolePermissions").delete("Role", "role_temp")
 ```
 
-### 4) Delete using query
+### 5) Delete using query
 
 ```py
 deleted_count = (
@@ -720,7 +844,7 @@ deleted_count = (
 )
 ```
 
-### 5) Schema API
+### 6) Schema API
 
 ```py
 schema = db.get_schema(tables=["User", "Profile"])

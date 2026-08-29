@@ -1,0 +1,11 @@
+{
+  "entity": {
+    "id": -7,
+    "name": "Møøse 🚀",
+    "active": true,
+    "score": 12.5,
+    "nullable": null,
+    "tags": ["alpha", "β"]
+  },
+  "page": 2
+}

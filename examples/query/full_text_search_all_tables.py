@@ -1,13 +1,14 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from onyx import SCHEMA, tables
 
 from onyx_database import onyx
-from onyx import tables, SCHEMA
 
 db = onyx.init(schema=SCHEMA)
 
 suffix = uuid.uuid4().hex[:8]
-now = datetime.now(timezone.utc)
+now = datetime.now(UTC)
 
 records = [
     {
@@ -42,11 +43,14 @@ def require_found(results, target_id: str, label: str):
         raise RuntimeError(f"{label} did not return expected record {target_id}")
 
 
-# Lucene OR query across all tables (email wildcard + phrase)
-lucene_all_query = f'("{suffix}-product manager" AND remote) OR email:{suffix}.ux*'
-all_hits = db.search(lucene_all_query).list()
-require_found(all_hits, records[0]["id"], f"db.search phrase branch ({lucene_all_query})")
-require_found(all_hits, records[1]["id"], f"db.search wildcard branch ({lucene_all_query})")
+# Native OR query across all tables (email wildcard + phrase)
+all_tables_query = f'("{suffix}-product manager" AND remote) OR email:{suffix}.ux*'
+all_hits = db.search(all_tables_query).list()
+require_found(all_hits, records[0]["id"], f"db.search phrase branch ({all_tables_query})")
+require_found(all_hits, records[1]["id"], f"db.search wildcard branch ({all_tables_query})")
 
-print(f"Lucene ALL search ({lucene_all_query}) matched:", [getattr(r, 'username', r.get('username')) for r in all_hits])
+print(
+    f"Native all-table search ({all_tables_query}) matched:",
+    [getattr(r, "username", r.get("username")) for r in all_hits],
+)
 print("example: completed")

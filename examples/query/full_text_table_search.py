@@ -1,13 +1,14 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from onyx_database import onyx, search, eq
-from onyx import tables, SCHEMA
+from onyx import SCHEMA, tables
+
+from onyx_database import eq, onyx, search
 
 db = onyx.init(schema=SCHEMA)
 
 unique_suffix = uuid.uuid4().hex[:8]
-now = datetime.now(timezone.utc)
+now = datetime.now(UTC)
 
 records = [
     {
@@ -41,12 +42,12 @@ def require_found(results, target_id, label: str):
         raise RuntimeError(f"{label} did not return expected record {target_id}")
 
 
-# Lucene phrase + boolean search within the Users table
-lucene_query = '"product engineer" AND remote'
-user_hits = db.from_table(tables.User).search(lucene_query, 0).list()
-require_found(user_hits, records[0]["id"], f'table search: {lucene_query}')
+# Native phrase + boolean search within the Users table
+full_text_query = '"product engineer" AND remote'
+user_hits = db.from_table(tables.User).search(full_text_query, 0).list()
+require_found(user_hits, records[0]["id"], f"table search: {full_text_query}")
 
-# Lucene AND combined with a structured filter
+# Native full-text condition combined with a structured filter
 data_query = "data AND scientist"
 active_hits = (
     db.from_table(tables.User)
@@ -54,8 +55,18 @@ active_hits = (
     .and_(eq("isActive", False))
     .list()
 )
-require_found(active_hits, records[1]["id"], f'lucene + filter: {data_query} AND isActive:false')
+require_found(
+    active_hits,
+    records[1]["id"],
+    f"full text + filter: {data_query} AND isActive:false",
+)
 
-print(f"Lucene table search ({lucene_query}) matched:", [getattr(r, 'username', r.get('username')) for r in user_hits])
-print(f"Lucene + filter ({data_query} AND isActive:false) matched:", [getattr(r, 'username', r.get('username')) for r in active_hits])
+print(
+    f"Native table search ({full_text_query}) matched:",
+    [getattr(r, "username", r.get("username")) for r in user_hits],
+)
+print(
+    f"Native full text + filter ({data_query} AND isActive:false) matched:",
+    [getattr(r, "username", r.get("username")) for r in active_hits],
+)
 print("example: completed")

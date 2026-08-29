@@ -1,6 +1,6 @@
 import unittest
 
-from onyx_database.helpers.conditions import search as search_condition
+from onyx_database.helpers.conditions import is_null, not_null, search as search_condition
 from onyx_database.onyx import OnyxDatabase
 from onyx_database.query_builder import QueryBuilder
 
@@ -10,6 +10,27 @@ class DummyExec:
 
 
 class SearchTests(unittest.TestCase):
+    def test_null_operators_omit_value_from_wire_query(self):
+        qb = QueryBuilder(DummyExec(), table="Table")
+        qb.where(is_null("releasedAt")).and_(not_null("createdAt"))
+
+        conditions = qb.to_update_query()["conditions"]["conditions"]
+
+        self.assertEqual(
+            conditions[0],
+            {
+                "conditionType": "SingleCondition",
+                "criteria": {"field": "releasedAt", "operator": "IS_NULL"},
+            },
+        )
+        self.assertEqual(
+            conditions[1],
+            {
+                "conditionType": "SingleCondition",
+                "criteria": {"field": "createdAt", "operator": "NOT_NULL"},
+            },
+        )
+
     def test_query_builder_search_condition(self):
         qb = QueryBuilder(DummyExec(), table="Table")
         qb.search("Text", 4.4)
