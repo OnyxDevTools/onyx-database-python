@@ -370,7 +370,7 @@ from onyx_database import onyx
 
 db = onyx.init()
 diff = db.diff_schema(local_schema)  # SchemaUpsertRequest-like dict
-print(diff.changed_tables)
+print(diff["changed_tables"])
 ```
 
 ---
@@ -1062,6 +1062,8 @@ deleted_count = (
 ### 6) Schema API
 
 ```py
+from onyx_database import SchemaUpsertRequest
+
 schema = db.get_schema(tables=["User", "Profile"])
 history = db.get_schema_history()
 
@@ -1096,6 +1098,39 @@ db.update_schema(
     publish=True,
 )
 ```
+
+For a `SEARCHABLE` entity, declare which indexes Cloud should maintain with
+`searchSupport`:
+
+```py
+searchable_schema: SchemaUpsertRequest = {
+    "revisionDescription": "Enable article search",
+    "entities": [
+        {
+            "name": "Article",
+            "type": "SEARCHABLE",
+            "searchSupport": "BOTH",
+            "identifier": {"name": "id", "generator": "UUID"},
+            "attributes": [
+                {"name": "id", "type": "String", "isNullable": False},
+                {"name": "body", "type": "String", "isNullable": False},
+            ],
+        }
+    ],
+}
+
+db.validate_schema(searchable_schema)
+db.update_schema(searchable_schema, publish=True)
+```
+
+- `LEXICAL` maintains term-based search only.
+- `SEMANTIC` maintains automatic embedding/HNSW search only.
+- `BOTH` enables lexical, semantic, and hybrid queries. It is the
+  backward-compatible default when `searchSupport` is omitted.
+
+Semantic and hybrid operation also require an embedding provider configured by
+the Cloud deployment. Changing `searchSupport` is a schema change and may
+rebuild the table's search indexes.
 
 ### 6) Secrets API
 

@@ -23,7 +23,8 @@ from .errors import OnyxHTTPError
 from .http import AsyncHttpClient, HttpClient, serialize_dates
 from .query_builder_async import AsyncQueryBuilder
 from .stream import open_entity_stream, open_json_lines_stream
-from .types import SchemaDiff, SearchMatch, SearchMode, SearchOptions
+from .schema import compute_schema_diff, strip_entity_text
+from .types import SchemaDiff, SchemaInput, SearchMatch, SearchMode, SearchOptions
 
 
 class _CascadeAsync:
@@ -152,6 +153,10 @@ class OnyxDatabaseAsync:
 
     async def _entity_request(self, method: str, path: str, body: Any = None) -> Any:
         return await self._http.request(method, path, body, wire_format=self._wire_format)
+
+    def _strip_entity_text(self, schema: Any) -> Any:
+        """Return a schema copy without noisy generated entity text."""
+        return strip_entity_text(schema)
 
     def _maybe_apply_model(self, table: str, value: Any) -> Any:
         model = self._model_map.get(table)
@@ -456,37 +461,30 @@ class OnyxDatabaseAsync:
         query = f"?{'&'.join(params)}" if params else ""
         path = f"/schemas/{self._database_id}{query}"
         res = await self._http.request("GET", path)
-        return res
+        return self._strip_entity_text(res)
 
     async def get_schema_history(self) -> Any:
         path = f"/schemas/history/{self._database_id}"
         return await self._http.request("GET", path)
 
-    async def validate_schema(self, schema: Dict[str, Any]) -> Any:
+    async def validate_schema(self, schema: SchemaInput) -> Any:
         path = f"/schemas/{self._database_id}/validate"
-        return await self._http.request("POST", path, serialize_dates(schema))
+        payload = self._strip_entity_text(schema)
+        return await self._http.request("POST", path, serialize_dates(payload))
 
-    async def update_schema(self, schema: Dict[str, Any], *, publish: bool = False) -> Any:
+    async def update_schema(self, schema: SchemaInput, *, publish: bool = False) -> Any:
         params = []
         if publish:
             params.append("publish=true")
         query = f"?{'&'.join(params)}" if params else ""
-        payload = dict(schema)
+        payload = self._strip_entity_text(schema)
         payload.setdefault("databaseId", self._database_id)
         path = f"/schemas/{self._database_id}{query}"
         return await self._http.request("PUT", path, serialize_dates(payload))
 
-    async def diff_schema(self, local_schema: Dict[str, Any]) -> SchemaDiff:
+    async def diff_schema(self, local_schema: SchemaInput) -> SchemaDiff:
         remote = await self.get_schema()
-        local_entities = {e.get("name"): e for e in local_schema.get("entities", [])} if isinstance(local_schema, dict) else {}
-        remote_entities = {e.get("name"): e for e in remote.get("entities", [])} if isinstance(remote, dict) else {}
-        added = [name for name in local_entities.keys() if name not in remote_entities]
-        removed = [name for name in remote_entities.keys() if name not in local_entities]
-        changed = [
-            name for name in local_entities.keys()
-            if name in remote_entities and json.dumps(local_entities[name], sort_keys=True) != json.dumps(remote_entities[name], sort_keys=True)
-        ]
-        return {"added_tables": added, "removed_tables": removed, "changed_tables": changed}
+        return compute_schema_diff(remote, local_schema)
 
     # Secrets
     async def list_secrets(self) -> Any:

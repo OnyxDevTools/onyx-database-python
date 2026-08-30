@@ -185,7 +185,107 @@ class StreamHandlers(TypedDict, total=False):
     on_item: Optional[callable]
 
 
+SchemaEntityType: TypeAlias = Literal["DEFAULT", "SEARCHABLE"]
+SchemaSearchSupport: TypeAlias = Literal["LEXICAL", "SEMANTIC", "BOTH"]
+
+
+class SchemaIdentifier(TypedDict, total=False):
+    """Primary-key definition in an Onyx Cloud schema entity."""
+
+    name: Required[str]
+    generator: str
+    type: str
+
+
+class SchemaAttribute(TypedDict, total=False):
+    """Attribute definition in an Onyx Cloud schema entity."""
+
+    name: Required[str]
+    type: Required[str]
+    isNullable: bool
+
+
+class SchemaIndex(TypedDict, total=False):
+    """Index definition in an Onyx Cloud schema entity."""
+
+    name: Required[str]
+    type: str
+    minimumScore: float
+
+
+class SchemaResolver(TypedDict, total=False):
+    """Resolver definition in an Onyx Cloud schema entity."""
+
+    name: Required[str]
+    resolver: Required[str]
+
+
+class SchemaTrigger(TypedDict, total=False):
+    """Trigger definition in an Onyx Cloud schema entity."""
+
+    name: Required[str]
+    event: Required[str]
+    trigger: Required[str]
+
+
+class SchemaEntity(TypedDict, total=False):
+    """Typed schema entity while retaining raw-dict schema API compatibility.
+
+    ``searchSupport`` applies to ``SEARCHABLE`` entities. Omitting it is
+    equivalent to ``"BOTH"`` for backward compatibility.
+    """
+
+    name: Required[str]
+    type: SchemaEntityType
+    searchSupport: SchemaSearchSupport
+    identifier: SchemaIdentifier
+    partition: str
+    attributes: List[SchemaAttribute]
+    indexes: List[SchemaIndex]
+    resolvers: List[SchemaResolver]
+    triggers: List[SchemaTrigger]
+    entityText: str
+
+
+class SchemaUpsertRequest(TypedDict, total=False):
+    """Schema payload accepted by validation and update operations."""
+
+    databaseId: str
+    revisionDescription: str
+    entities: Required[List[SchemaEntity]]
+
+
+SchemaInput: TypeAlias = Union[SchemaUpsertRequest, Dict[str, Any]]
+SchemaEntityTypeChange = TypedDict(
+    "SchemaEntityTypeChange",
+    {"from": SchemaEntityType, "to": SchemaEntityType},
+)
+SchemaSearchSupportChange = TypedDict(
+    "SchemaSearchSupportChange",
+    {"from": SchemaSearchSupport, "to": SchemaSearchSupport},
+)
+
+
+SchemaAttributeChange = TypedDict(
+    "SchemaAttributeChange",
+    {"name": str, "from": Dict[str, Any], "to": Dict[str, Any]},
+)
+
+
+class SchemaAttributeDiff(TypedDict):
+    added: List[str]
+    removed: List[str]
+    changed: List[SchemaAttributeChange]
+
+
+class SchemaTableDiff(TypedDict, total=False):
+    name: Required[str]
+    type: SchemaEntityTypeChange
+    searchSupport: SchemaSearchSupportChange
+    attributes: SchemaAttributeDiff
+
+
 class SchemaDiff(TypedDict, total=False):
     added_tables: List[str]
     removed_tables: List[str]
-    changed_tables: List[str]
+    changed_tables: List[SchemaTableDiff]

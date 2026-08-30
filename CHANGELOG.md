@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 2.5.0 - 2026-08-29
+
+- Added typed schema definitions for searchable entities, including the
+  per-entity `searchSupport` capability (`LEXICAL`, `SEMANTIC`, or `BOTH`). Raw
+  schema dictionaries and extension fields remain supported.
+- Sync and async schema get, validate, and update paths now consistently retain
+  `searchSupport`, remove generated `entityText` without mutating caller-owned
+  dictionaries, and preserve the Cloud JSON contract.
+- Schema diffs now detect entity type and search-capability changes while
+  treating omitted `searchSupport` as the backward-compatible `BOTH` default.
+
 ## 2.4.0 - 2026-08-29
 
 - Added one high-level `search` API for lexical, semantic, and hybrid retrieval

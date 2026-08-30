@@ -23,7 +23,8 @@ from .errors import OnyxHTTPError
 from .http import HttpClient, serialize_dates
 from .query_builder import QueryBuilder
 from .stream import open_entity_stream, open_json_lines_stream
-from .types import SchemaDiff, SearchMatch, SearchMode, SearchOptions
+from .schema import compute_schema_diff, strip_entity_text
+from .types import SchemaDiff, SchemaInput, SearchMatch, SearchMode, SearchOptions
 
 
 class _Cascade:
@@ -156,15 +157,8 @@ class OnyxDatabase:
         return self._http.request(method, path, body, wire_format=self._wire_format)
 
     def _strip_entity_text(self, schema: Any) -> Any:
-        """Remove noisy entityText blocks from schemas (mutates in place)."""
-        if not isinstance(schema, dict):
-            return schema
-        entities = schema.get("entities")
-        if isinstance(entities, list):
-            for ent in entities:
-                if isinstance(ent, dict):
-                    ent.pop("entityText", None)
-        return schema
+        """Return a schema copy without noisy generated entity text."""
+        return strip_entity_text(schema)
 
     # Entry points / builders
     def from_table(self, table: str) -> QueryBuilder:
@@ -477,12 +471,12 @@ class OnyxDatabase:
         path = f"/schemas/history/{self._database_id}"
         return self._http.request("GET", path)
 
-    def validate_schema(self, schema: Dict[str, Any]) -> Any:
+    def validate_schema(self, schema: SchemaInput) -> Any:
         path = f"/schemas/{self._database_id}/validate"
         payload = self._strip_entity_text(dict(schema))
         return self._http.request("POST", path, serialize_dates(payload))
 
-    def update_schema(self, schema: Dict[str, Any], *, publish: bool = False) -> Any:
+    def update_schema(self, schema: SchemaInput, *, publish: bool = False) -> Any:
         params = []
         if publish:
             params.append("publish=true")
@@ -492,49 +486,9 @@ class OnyxDatabase:
         path = f"/schemas/{self._database_id}{query}"
         return self._http.request("PUT", path, serialize_dates(payload))
 
-    def diff_schema(self, local_schema: Dict[str, Any]) -> SchemaDiff:
+    def diff_schema(self, local_schema: SchemaInput) -> SchemaDiff:
         remote = self.get_schema()
-        local_clean = self._strip_entity_text(dict(local_schema)) if isinstance(local_schema, dict) else {}
-        remote_entities = {e.get("name"): e for e in remote.get("entities", [])} if isinstance(remote, dict) else {}
-        local_entities = {e.get("name"): e for e in local_clean.get("entities", [])} if isinstance(local_clean, dict) else {}
-        added = [name for name in local_entities.keys() if name not in remote_entities]
-        removed = [name for name in remote_entities.keys() if name not in local_entities]
-
-        def _attributes_by_name(entity: Dict[str, Any]):
-            attrs = entity.get("attributes", []) if isinstance(entity, dict) else []
-            return {a.get("name"): a for a in attrs if isinstance(a, dict) and a.get("name")}
-
-        changed_tables = []
-        for name in local_entities.keys():
-            if name not in remote_entities:
-                continue
-            local_ent = local_entities[name]
-            remote_ent = remote_entities[name]
-            local_attrs = _attributes_by_name(local_ent)
-            remote_attrs = _attributes_by_name(remote_ent)
-
-            added_attrs = [n for n in local_attrs if n not in remote_attrs]
-            removed_attrs = [n for n in remote_attrs if n not in local_attrs]
-            changed_attrs = []
-            for attr_name in local_attrs:
-                if attr_name in remote_attrs:
-                    l_attr = local_attrs[attr_name]
-                    r_attr = remote_attrs[attr_name]
-                    if json.dumps(l_attr, sort_keys=True) != json.dumps(r_attr, sort_keys=True):
-                        changed_attrs.append({"name": attr_name, "from": r_attr, "to": l_attr})
-            if added_attrs or removed_attrs or changed_attrs:
-                changed_tables.append(
-                    {
-                        "name": name,
-                        "attributes": {
-                            "added": added_attrs,
-                            "removed": removed_attrs,
-                            "changed": changed_attrs,
-                        },
-                    }
-                )
-
-        return {"added_tables": added, "removed_tables": removed, "changed_tables": changed_tables}
+        return compute_schema_diff(remote, local_schema)
 
     # Secrets
     def list_secrets(self) -> Any:
