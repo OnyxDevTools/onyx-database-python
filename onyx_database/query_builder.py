@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, overload
 
 from .query_results import QueryResults
-from .types import Sort
+from .types import SearchMatch, SearchMode, SearchOptions, Sort
 from .helpers.conditions import (
     approximate_candidates as approximate_candidates_condition,
     approximate_search as approximate_search_condition,
@@ -14,6 +14,7 @@ from .helpers.conditions import (
 )
 
 _CANDIDATE_OPERATORS = {"CANDIDATES", "SEARCH_CANDIDATES", "HNSW_CANDIDATES"}
+_READ_ONLY_SEARCH_OPERATOR = "SEARCH"
 
 
 def _flatten_strings(values) -> List[str]:
@@ -47,19 +48,70 @@ def _normalize_condition(condition: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _candidate_operator(condition: Optional[Dict[str, Any]]) -> Optional[str]:
+def _iter_criteria(
+    condition: Optional[Dict[str, Any]],
+) -> Iterator[Dict[str, Any]]:
+    """Yield criteria from every level of a normalized condition tree."""
+
     if not condition:
-        return None
+        return
     if condition.get("conditionType") == "SingleCondition":
-        operator = condition.get("criteria", {}).get("operator")
-        return operator if operator in _CANDIDATE_OPERATORS else None
+        criteria = condition.get("criteria")
+        if isinstance(criteria, dict):
+            yield criteria
+        return
     conditions = condition.get("conditions")
     if isinstance(conditions, list):
         for child in conditions:
-            operator = _candidate_operator(child)
-            if operator is not None:
-                return operator
-    return None
+            if isinstance(child, dict):
+                yield from _iter_criteria(child)
+
+
+def _candidate_operator(condition: Optional[Dict[str, Any]]) -> Optional[str]:
+    return next(
+        (
+            operator
+            for criteria in _iter_criteria(condition)
+            if (operator := criteria.get("operator")) in _CANDIDATE_OPERATORS
+        ),
+        None,
+    )
+
+
+def _read_only_search_operator(
+    condition: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    return next(
+        (
+            operator
+            for criteria in _iter_criteria(condition)
+            if (operator := criteria.get("operator"))
+            in {*_CANDIDATE_OPERATORS, _READ_ONLY_SEARCH_OPERATOR}
+        ),
+        None,
+    )
+
+
+def _validate_search_composition(
+    existing: Optional[Dict[str, Any]], incoming: Dict[str, Any]
+) -> None:
+    criteria = [*_iter_criteria(existing), *_iter_criteria(incoming)]
+    if any(
+        item.get("operator") == _READ_ONLY_SEARCH_OPERATOR
+        and item.get("field") != "__full_text__"
+        for item in criteria
+    ):
+        raise ValueError("SEARCH must target __full_text__")
+    search_count = sum(
+        item.get("operator") == _READ_ONLY_SEARCH_OPERATOR for item in criteria
+    )
+    if search_count > 1:
+        raise ValueError("SEARCH may appear at most once in a query")
+    full_text_count = sum(item.get("field") == "__full_text__" for item in criteria)
+    if search_count == 1 and full_text_count > 1:
+        raise ValueError(
+            "SEARCH cannot be combined with another __full_text__ criterion"
+        )
 
 
 class QueryBuilder:
@@ -90,9 +142,17 @@ class QueryBuilder:
             raise ValueError(f"{self._candidate_root_operator} must be the sole root criterion")
 
     def _require_mutable_root(self, operation: str):
-        if self._candidate_root_operator is not None:
+        read_only_operator = _read_only_search_operator(self._conditions)
+        if read_only_operator is not None:
             raise ValueError(
-                f"{self._candidate_root_operator} is read-only and cannot execute {operation}"
+                f"{read_only_operator} is read-only and cannot execute {operation}"
+            )
+
+    def _require_streamable_root(self):
+        read_only_operator = _read_only_search_operator(self._conditions)
+        if read_only_operator is not None:
+            raise ValueError(
+                f"{read_only_operator} cannot be used with live query streams"
             )
 
     def _adopt_candidate_root(self, condition: Dict[str, Any]) -> bool:
@@ -171,6 +231,7 @@ class QueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_search_composition(self._conditions, cond)
         if not self._conditions:
             self._conditions = cond
         else:
@@ -181,23 +242,57 @@ class QueryBuilder:
             }
         return self
 
+    @overload
+    def search(
+        self,
+        query_text_or_search: str,
+        min_score: SearchOptions,
+        *,
+        mode: None = None,
+        match: None = None,
+        semantic: None = None,
+        nearby_bucket_radius: None = None,
+        max_candidates: None = None,
+        require_all_terms: None = None,
+    ) -> QueryBuilder:
+        ...
+
+    @overload
     def search(
         self,
         query_text_or_search: Any,
         min_score: Optional[float] = None,
         *,
+        mode: Optional[SearchMode] = None,
+        match: Optional[SearchMatch] = None,
         semantic: Any = None,
         nearby_bucket_radius: Optional[int] = None,
         max_candidates: Optional[int] = None,
         require_all_terms: Optional[bool] = None,
-    ):
-        """Add an exact native text, semantic, or hybrid search predicate."""
+    ) -> QueryBuilder:
+        ...
+
+    def search(
+        self,
+        query_text_or_search: Any,
+        min_score: Optional[float] | SearchOptions = None,
+        *,
+        mode: Optional[SearchMode] = None,
+        match: Optional[SearchMatch] = None,
+        semantic: Any = None,
+        nearby_bucket_radius: Optional[int] = None,
+        max_candidates: Optional[int] = None,
+        require_all_terms: Optional[bool] = None,
+    ) -> QueryBuilder:
+        """Add a legacy predicate or high-level lexical, semantic, or hybrid search."""
 
         self._require_composable_root()
         cond = _normalize_condition(
             search_condition(
                 query_text_or_search,
                 min_score,
+                mode=mode,
+                match=match,
                 semantic=semantic,
                 nearby_bucket_radius=nearby_bucket_radius,
                 max_candidates=max_candidates,
@@ -206,6 +301,7 @@ class QueryBuilder:
         )
         if not cond:
             return self
+        _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
         elif self._conditions:
@@ -273,6 +369,7 @@ class QueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
         elif self._conditions:
@@ -296,6 +393,7 @@ class QueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "OR":
             self._conditions["conditions"].append(cond)
         elif self._conditions:
@@ -457,6 +555,7 @@ class QueryBuilder:
     def stream(self, include_query_results: bool = True, keep_alive: bool = False):
         if self._mode != "select":
             raise ValueError("Streaming is only applicable in select mode.")
+        self._require_streamable_root()
         handlers = {
             "on_item_added": self._on_item_added,
             "on_item_updated": self._on_item_updated,

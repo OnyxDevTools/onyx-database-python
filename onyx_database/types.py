@@ -26,6 +26,25 @@ class QueryBuilderLike(Protocol):
 Condition = Dict[str, Any]
 Sort = Dict[str, str]
 
+SearchMode: TypeAlias = Literal["lexical", "semantic", "hybrid"]
+SearchMatch: TypeAlias = Literal["all", "any"]
+
+
+class SearchOptions(TypedDict, total=False):
+    """Options for the high-level natural-language ``search`` API.
+
+    Python mappings may use snake_case or the Cloud wire camelCase aliases. Do
+    not supply both spellings of the same option.
+    """
+
+    mode: SearchMode
+    match: SearchMatch
+    min_score: Optional[float]
+    max_candidates: int
+    minScore: Optional[float]
+    maxCandidates: int
+
+
 QueryCriteriaOperator: TypeAlias = Literal[
     "EQUAL",
     "NOT_EQUAL",
@@ -52,6 +71,7 @@ QueryCriteriaOperator: TypeAlias = Literal[
     "CANDIDATES",
     "SEARCH_CANDIDATES",
     "HNSW_CANDIDATES",
+    "SEARCH",
 ]
 
 

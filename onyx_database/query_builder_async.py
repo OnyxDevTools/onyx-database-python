@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, overload
 
-from .query_builder import _candidate_operator, _flatten_strings, _normalize_condition
+from .query_builder import (
+    _candidate_operator,
+    _flatten_strings,
+    _normalize_condition,
+    _read_only_search_operator,
+    _validate_search_composition,
+)
 from .query_results_async import AsyncQueryResults
-from .types import Sort
+from .types import SearchMatch, SearchMode, SearchOptions, Sort
 from .helpers.conditions import (
     approximate_candidates as approximate_candidates_condition,
     approximate_search as approximate_search_condition,
@@ -39,9 +45,10 @@ class AsyncQueryBuilder:
             raise ValueError(f"{self._candidate_root_operator} must be the sole root criterion")
 
     def _require_mutable_root(self, operation: str):
-        if self._candidate_root_operator is not None:
+        read_only_operator = _read_only_search_operator(self._conditions)
+        if read_only_operator is not None:
             raise ValueError(
-                f"{self._candidate_root_operator} is read-only and cannot execute {operation}"
+                f"{read_only_operator} is read-only and cannot execute {operation}"
             )
 
     def _adopt_candidate_root(self, condition: Dict[str, Any]) -> bool:
@@ -120,6 +127,7 @@ class AsyncQueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_search_composition(self._conditions, cond)
         if not self._conditions:
             self._conditions = cond
         else:
@@ -130,23 +138,57 @@ class AsyncQueryBuilder:
             }
         return self
 
+    @overload
+    def search(
+        self,
+        query_text_or_search: str,
+        min_score: SearchOptions,
+        *,
+        mode: None = None,
+        match: None = None,
+        semantic: None = None,
+        nearby_bucket_radius: None = None,
+        max_candidates: None = None,
+        require_all_terms: None = None,
+    ) -> AsyncQueryBuilder:
+        ...
+
+    @overload
     def search(
         self,
         query_text_or_search: Any,
         min_score: Optional[float] = None,
         *,
+        mode: Optional[SearchMode] = None,
+        match: Optional[SearchMatch] = None,
         semantic: Any = None,
         nearby_bucket_radius: Optional[int] = None,
         max_candidates: Optional[int] = None,
         require_all_terms: Optional[bool] = None,
-    ):
-        """Add an exact native text, semantic, or hybrid search predicate."""
+    ) -> AsyncQueryBuilder:
+        ...
+
+    def search(
+        self,
+        query_text_or_search: Any,
+        min_score: Optional[float] | SearchOptions = None,
+        *,
+        mode: Optional[SearchMode] = None,
+        match: Optional[SearchMatch] = None,
+        semantic: Any = None,
+        nearby_bucket_radius: Optional[int] = None,
+        max_candidates: Optional[int] = None,
+        require_all_terms: Optional[bool] = None,
+    ) -> AsyncQueryBuilder:
+        """Add a legacy predicate or high-level lexical, semantic, or hybrid search."""
 
         self._require_composable_root()
         cond = _normalize_condition(
             search_condition(
                 query_text_or_search,
                 min_score,
+                mode=mode,
+                match=match,
                 semantic=semantic,
                 nearby_bucket_radius=nearby_bucket_radius,
                 max_candidates=max_candidates,
@@ -155,6 +197,7 @@ class AsyncQueryBuilder:
         )
         if not cond:
             return self
+        _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
         elif self._conditions:
@@ -222,6 +265,7 @@ class AsyncQueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
         elif self._conditions:
@@ -244,6 +288,7 @@ class AsyncQueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "OR":
             self._conditions["conditions"].append(cond)
         elif self._conditions:

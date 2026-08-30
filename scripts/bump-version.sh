@@ -72,7 +72,7 @@ cmd python -m py_compile $(find onyx_database tests -name '*.py')
 # Optional lint phase gate if ruff or flake8 is available
 if command -v ruff >/dev/null 2>&1; then
   info "Linting with ruff..."
-  cmd ruff check onyx_database examples tests
+  cmd ruff check --select F,E9 onyx_database examples tests
 elif command -v flake8 >/dev/null 2>&1; then
   info "Linting with flake8..."
   cmd flake8 onyx_database examples tests

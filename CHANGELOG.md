@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+## 2.4.0 - 2026-08-29
+
+- Added one high-level `search` API for lexical, semantic, and hybrid retrieval
+  across sync and async table builders and database-wide facades. The new form
+  accepts an options mapping or Python keyword arguments, emits the fail-closed
+  `SEARCH` wire operator, defaults to hybrid/any retrieval, validates scores in
+  `0..1`, and remains composable with structured filters while rejecting
+  mutations.
+- Preserved the exact legacy `MATCHES` wire shape for `search(text)` and
+  `search(text, min_score)` calls.
+- Added typed `SearchOptions` overloads and a PEP 561 marker while retaining the
+  legacy numeric-score overloads on sync and async builders and database-wide
+  facades.
+- Added recursive guards for duplicate or mis-targeted `SEARCH`, mixed
+  `__full_text__` predicates, and unsupported live query streams. Database-wide
+  search no longer inherits a configured default partition.
+
 ## 2.3.0 - 2026-08-29
 
 - Added typed, hard-bounded native `CANDIDATES`, `SEARCH_CANDIDATES`, and

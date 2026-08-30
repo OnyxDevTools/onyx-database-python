@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Optional, Sequence, Union
 
-from ..types import Condition, QueryBuilderLike
+from ..types import Condition, QueryBuilderLike, SearchMatch, SearchMode, SearchOptions
 from .candidate_search import (
     DEFAULT_APPROXIMATE_INDEX_CANDIDATES,
     approximate_index_candidate_query,
+    high_level_search_query,
     hnsw_search_query,
     vector_search_query,
 )
@@ -123,18 +124,69 @@ def not_contains_ignore_case(field: str, value: Any) -> Condition:
 
 def search(
     query_text_or_search: Any,
-    min_score: Optional[float] = None,
+    min_score: Optional[float] | SearchOptions = None,
     *,
+    mode: Optional[SearchMode] = None,
+    match: Optional[SearchMatch] = None,
     semantic: Any = None,
     nearby_bucket_radius: Optional[int] = None,
     max_candidates: Optional[int] = None,
     require_all_terms: Optional[bool] = None,
 ) -> Condition:
-    """Create an exact native full-text, semantic, or hybrid search condition.
+    """Create a legacy predicate or high-level natural-language search condition.
 
-    Strings retain the established ``queryText`` wire shape. A mapping is
-    validated and emitted as a canonical ``VectorSearchQuery``.
+    A plain string, optionally followed only by a numeric score, retains the
+    established ``queryText`` wire shape. Passing a ``SearchOptions`` mapping as
+    the second argument, or passing a high-level option keyword, emits the
+    canonical ``SEARCH`` contract. First-argument mappings remain the advanced
+    ``VectorSearchQuery`` path.
     """
+
+    options_mapping = min_score if isinstance(min_score, Mapping) else None
+    legacy_vector_options = (
+        semantic is not None
+        or nearby_bucket_radius is not None
+        or require_all_terms is not None
+    )
+    high_level_keywords = (
+        mode is not None
+        or match is not None
+        or (max_candidates is not None and not legacy_vector_options)
+    )
+    if options_mapping is not None or high_level_keywords:
+        if not isinstance(query_text_or_search, str):
+            raise TypeError("the high-level search API requires text")
+        if options_mapping is not None:
+            if (
+                high_level_keywords
+                or semantic is not None
+                or nearby_bucket_radius is not None
+                or max_candidates is not None
+                or require_all_terms is not None
+            ):
+                raise TypeError(
+                    "do not combine a search options mapping with search keywords"
+                )
+            search_value = high_level_search_query(
+                query_text_or_search, options_mapping
+            )
+        else:
+            if (
+                semantic is not None
+                or nearby_bucket_radius is not None
+                or require_all_terms is not None
+            ):
+                raise TypeError(
+                    "mode/match cannot be combined with semantic routing options"
+                )
+            search_value = high_level_search_query(
+                query_text_or_search,
+                mode="hybrid" if mode is None else mode,
+                match="any" if match is None else match,
+                min_score=min_score,
+                max_candidates=1_000 if max_candidates is None else max_candidates,
+            )
+        return _condition("__full_text__", "SEARCH", search_value)
 
     has_vector_options = (
         semantic is not None

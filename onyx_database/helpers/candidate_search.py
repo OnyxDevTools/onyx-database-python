@@ -13,6 +13,8 @@ from ..types import (
     ApproximateIndexCandidateQuery,
     HnswSearchQuery,
     Int64WireInput,
+    SearchMatch,
+    SearchMode,
     SemanticVectorSignature,
     VectorSearchQuery,
 )
@@ -37,6 +39,16 @@ _SEMANTIC_BAND_COUNT = 4
 _MISSING = object()
 _DECIMAL_RE = re.compile(r"^-?\d+$")
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
+_SEARCH_MODES = {"lexical", "semantic", "hybrid"}
+_SEARCH_MATCH_POLICIES = {"all", "any"}
+_SEARCH_OPTION_FIELDS = {
+    "mode",
+    "match",
+    "minScore",
+    "min_score",
+    "maxCandidates",
+    "max_candidates",
+}
 
 
 def _mapping(input_value: Mapping[str, Any] | None, field: str) -> Mapping[str, Any]:
@@ -60,6 +72,105 @@ def _value(
     if default is _MISSING:
         raise TypeError(f"{names[0]} is required")
     return default
+
+
+def _aliased_search_option(
+    values: Mapping[str, Any],
+    wire_name: str,
+    snake_name: str,
+    *,
+    default: Any = _MISSING,
+) -> Any:
+    present = [name for name in (wire_name, snake_name) if name in values]
+    if len(present) > 1:
+        raise TypeError(f"provide only one of {wire_name} and {snake_name}")
+    if present:
+        return values[present[0]]
+    if default is _MISSING:
+        raise TypeError(f"{snake_name} is required")
+    return default
+
+
+def high_level_search_query(
+    text: Any,
+    options: Mapping[str, Any] | None = None,
+    *,
+    mode: Any = _MISSING,
+    match: Any = _MISSING,
+    min_score: Any = _MISSING,
+    max_candidates: Any = _MISSING,
+) -> dict[str, Any]:
+    """Validate and canonicalize a text-first lexical, semantic, or hybrid query."""
+
+    if not isinstance(text, str):
+        raise TypeError("search text must be a string")
+    if not text.strip():
+        raise ValueError("search text must not be blank")
+
+    has_options_mapping = options is not None
+    values = _mapping(options, "SearchOptions")
+    unknown = sorted(set(values) - _SEARCH_OPTION_FIELDS)
+    if unknown:
+        raise TypeError(f"unsupported search option: {unknown[0]}")
+
+    keyword_values = (mode, match, min_score, max_candidates)
+    if has_options_mapping and any(
+        value is not _MISSING for value in keyword_values
+    ):
+        raise TypeError("do not combine a search options mapping with search keywords")
+
+    if has_options_mapping:
+        mode = _value(values, "mode", default="hybrid")
+        if mode is None:
+            raise TypeError("search mode must be a string")
+        match = _value(values, "match", default="any")
+        min_score = _aliased_search_option(
+            values, "minScore", "min_score", default=None
+        )
+        max_candidates = _aliased_search_option(
+            values, "maxCandidates", "max_candidates", default=1_000
+        )
+    else:
+        if mode is _MISSING or mode is None:
+            mode = "hybrid"
+        if match is _MISSING:
+            match = "any"
+        if min_score is _MISSING:
+            min_score = None
+        if max_candidates is _MISSING or max_candidates is None:
+            max_candidates = 1_000
+
+    if mode is _MISSING or mode is None:
+        mode = "hybrid"
+    if not isinstance(mode, str):
+        raise TypeError("search mode must be a string")
+    if mode not in _SEARCH_MODES:
+        raise ValueError("search mode must be lexical, semantic, or hybrid")
+    if not isinstance(match, str):
+        raise TypeError("search match must be a string")
+    if match not in _SEARCH_MATCH_POLICIES:
+        raise ValueError("search match must be all or any")
+
+    canonical_min_score = None
+    if min_score is not None:
+        canonical_min_score, _ = _finite_float32(min_score, "minScore")
+        if canonical_min_score < 0 or canonical_min_score > 1:
+            raise ValueError("minScore must be between 0 and 1")
+    candidate_count = _require_integer(max_candidates, "maxCandidates")
+    if candidate_count < 1 or candidate_count > MAX_VECTOR_SEARCH_CANDIDATES:
+        raise ValueError(
+            f"maxCandidates must be between 1 and {MAX_VECTOR_SEARCH_CANDIDATES}"
+        )
+    if mode == "hybrid" and candidate_count < 2:
+        raise ValueError("maxCandidates must be at least 2 for hybrid search")
+
+    return {
+        "text": text,
+        "mode": cast(SearchMode, mode),
+        "match": cast(SearchMatch, match),
+        "minScore": canonical_min_score,
+        "maxCandidates": candidate_count,
+    }
 
 
 def _require_integer(value: Any, field: str) -> int:

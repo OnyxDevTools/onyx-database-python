@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, Iterable, Optional, cast, overload
 
 from .ai import iter_sse_async
 from .config import ResolvedConfig, clear_config_cache, resolve_config
@@ -22,7 +23,7 @@ from .errors import OnyxHTTPError
 from .http import AsyncHttpClient, HttpClient, serialize_dates
 from .query_builder_async import AsyncQueryBuilder
 from .stream import open_entity_stream, open_json_lines_stream
-from .types import SchemaDiff
+from .types import SchemaDiff, SearchMatch, SearchMode, SearchOptions
 
 
 class _CascadeAsync:
@@ -169,12 +170,55 @@ class OnyxDatabaseAsync:
     def select(self, *fields) -> AsyncQueryBuilder:
         return AsyncQueryBuilder(self, None, partition=self._default_partition).select(*fields)
 
-    def search(self, query_text: str, min_score: Optional[float] = None) -> AsyncQueryBuilder:
+    @overload
+    def search(
+        self,
+        query_text: str,
+        min_score: SearchOptions,
+        *,
+        mode: None = None,
+        match: None = None,
+        max_candidates: None = None,
+    ) -> AsyncQueryBuilder:
+        ...
+
+    @overload
+    def search(
+        self,
+        query_text: str,
+        min_score: Optional[float] = None,
+        *,
+        mode: Optional[SearchMode] = None,
+        match: Optional[SearchMatch] = None,
+        max_candidates: Optional[int] = None,
+    ) -> AsyncQueryBuilder:
+        ...
+
+    def search(
+        self,
+        query_text: str,
+        min_score: Optional[float] | SearchOptions = None,
+        *,
+        mode: Optional[SearchMode] = None,
+        match: Optional[SearchMatch] = None,
+        max_candidates: Optional[int] = None,
+    ) -> AsyncQueryBuilder:
         if not isinstance(query_text, str):
-            raise TypeError(
-                "database-wide search supports text only; use a table query for vector search"
-            )
-        return AsyncQueryBuilder(self, "ALL", partition=self._default_partition).search(query_text, min_score)
+            raise TypeError("database-wide search requires text")
+        builder = AsyncQueryBuilder(self, "ALL", partition=None)
+        if isinstance(min_score, Mapping):
+            if mode is not None or match is not None or max_candidates is not None:
+                raise TypeError(
+                    "do not combine a search options mapping with search keywords"
+                )
+            return builder.search(query_text, cast(SearchOptions, min_score))
+        return builder.search(
+            query_text,
+            min_score,
+            mode=mode,
+            match=match,
+            max_candidates=max_candidates,
+        )
 
     def cascade(self, relationships: str) -> _CascadeAsync:
         rels = [r.strip() for r in relationships.split(",")] if isinstance(relationships, str) else list(relationships)
@@ -307,7 +351,7 @@ class OnyxDatabaseAsync:
     # Query executor (used by AsyncQueryBuilder)
     async def count(self, table: str, select: Dict[str, Any], partition: Optional[str]) -> int:
         params = []
-        p = partition or self._default_partition
+        p = None if table == "ALL" else partition or self._default_partition
         if p:
             params.append(f"partition={p}")
         query = f"?{'&'.join(params)}" if params else ""
@@ -320,7 +364,13 @@ class OnyxDatabaseAsync:
             params.append(f"pageSize={options['pageSize']}")
         if options.get("nextPage"):
             params.append(f"nextPage={options['nextPage']}")
-        partition = options.get("partition") or select.get("partition") or self._default_partition
+        partition = (
+            None
+            if table == "ALL"
+            else options.get("partition")
+            or select.get("partition")
+            or self._default_partition
+        )
         if partition:
             params.append(f"partition={partition}")
         query = f"?{'&'.join(params)}" if params else ""
@@ -332,7 +382,7 @@ class OnyxDatabaseAsync:
 
     async def delete_by_query(self, table: str, select: Dict[str, Any], partition: Optional[str]) -> Any:
         params = []
-        p = partition or self._default_partition
+        p = None if table == "ALL" else partition or self._default_partition
         if p:
             params.append(f"partition={p}")
         query = f"?{'&'.join(params)}" if params else ""
@@ -341,7 +391,11 @@ class OnyxDatabaseAsync:
 
     async def update(self, table: str, update_query: Dict[str, Any], partition: Optional[str]) -> Any:
         params = []
-        p = partition or update_query.get("partition") or self._default_partition
+        p = (
+            None
+            if table == "ALL"
+            else partition or update_query.get("partition") or self._default_partition
+        )
         if p:
             params.append(f"partition={p}")
         query = f"?{'&'.join(params)}" if params else ""

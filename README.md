@@ -174,7 +174,7 @@ db = onyx.init(
 
 #### Default partition + logging
 
-- `partition` sets a default partition for queries, `find_by_id`, and deletes by primary key.
+- `partition` sets a default partition for table-scoped queries, `find_by_id`, and deletes by primary key; database-wide `db.search(...)` omits it.
 - Save operations use the partition field on the entity itself (if present).
 - `request_logging_enabled` logs HTTP requests and JSON bodies.
 - `response_logging_enabled` logs HTTP responses and JSON bodies.
@@ -478,7 +478,30 @@ from onyx_database import (
 - Prefer `within` / `not_within` for inclusion checks (supports arrays, comma-separated strings, or inner queries).
 - `in_op` / `not_in` remain available for backward compatibility and are exact aliases.
 
-Native candidate channels are explicit and physically bounded:
+For application search, choose lexical, semantic, or hybrid mode directly:
+
+```py
+question = "how do i calculate cost per horse"
+
+lexical = db.from_table("ActiveDocumentChunk").search(
+    question,
+    mode="lexical",
+    match="any",
+).list()
+
+semantic = db.from_table("ActiveDocumentChunk").search(
+    question,
+    mode="semantic",
+).list()
+
+hybrid = db.from_table("ActiveDocumentChunk").search(
+    question,
+    mode="hybrid",
+).list()
+```
+
+Native candidate channels remain available as explicit, physically bounded
+low-level APIs:
 
 ```py
 from onyx_database import hnsw_search_query
@@ -562,9 +585,75 @@ roles_missing_permission = (
 )
 ```
 
-### Native vector-managed search
+### Lexical, semantic, and hybrid search
 
-Use `.search(...)` on a builder or the `search` predicate helper to add a `MATCHES` condition against the `__full_text__` pseudo-field. `db.search(...)` sets `table = "ALL"` and seeds a query builder with that condition (extras like `partition`, `pageSize`, `nextPage` remain querystring params when provided).
+The high-level API sends natural-language text to the database when you pass an
+options mapping or search-option keywords. `mode` defaults to `"hybrid"`, `match`
+defaults to `"any"`, `min_score` defaults to `None`, and `max_candidates` defaults
+to `1000`.
+
+```py
+question = "how do i calculate cost per horse"
+
+# Match any normalized query term.
+lexical = db.from_table(tables.ActiveDocumentChunk).search(
+    question,
+    mode="lexical",
+    match="any",
+    min_score=0.4,
+    max_candidates=500,
+).list()
+
+# Let the database embed the query and use semantic retrieval.
+semantic = db.from_table(tables.ActiveDocumentChunk).search(
+    question,
+    mode="semantic",
+).list()
+
+# Combine lexical and semantic retrieval.
+hybrid = db.from_table(tables.ActiveDocumentChunk).search(
+    question,
+    mode="hybrid",
+).list()
+
+# A mapping is equivalent; Python snake_case and wire camelCase are accepted.
+same_hybrid = db.from_table(tables.ActiveDocumentChunk).search(
+    question,
+    {"mode": "hybrid", "match": "any", "max_candidates": 500},
+).list()
+```
+
+The same options work through `db.search(...)` for database-wide search and on
+the async client. When supplied, `mode` must be `"lexical"`, `"semantic"`, or
+`"hybrid"`; `match` must be `"all"` or `"any"`; `min_score` must be finite and
+between 0 and 1; and `max_candidates` must be between 1 and 5000. Hybrid mode
+requires at least 2 candidates so both lexical and semantic channels receive a
+candidate budget.
+High-level `SEARCH` queries are read-only but may be combined with structured
+filters using `where`, `and_`, or `or_`. A query may contain only one `SEARCH`,
+it cannot contain another `__full_text__` predicate, and high-level/candidate
+search plans cannot be used for live query streams.
+
+Table-scoped high-level search spans the table's current partitions by default
+under one global candidate budget; use `in_partition(...)` to constrain it.
+The low-level candidate APIs below still require one concrete partition.
+Database-wide `db.search(...)` searches eligible unpartitioned tables only and
+does not inherit the client's configured default partition.
+
+Semantic and hybrid modes require a server-side embedding provider. The provider
+must embed saved searchable text and query text with the same model and vector
+space; marking a field searchable does not select or configure that provider.
+Rows saved before embedding was enabled must be explicitly resaved or backfilled
+before HNSW can retrieve them.
+
+### Legacy vector-managed search
+
+Use `.search(...)` on a builder or the `search` predicate helper to add a `MATCHES` condition against the `__full_text__` pseudo-field. `db.search(...)` sets `table = "ALL"` and seeds a query builder with that condition. Paging remains a query parameter; partition is deliberately omitted from `ALL` searches.
+
+For compatibility, calls with no options and calls whose only second argument is
+a numeric score retain this legacy wire contract. Pass an options mapping or a
+high-level option such as `mode`, `match`, or `max_candidates` to opt into
+`SEARCH`.
 
 ```py
 from onyx_database import onyx, search, eq
@@ -702,7 +791,7 @@ Example request bodies emitted by the SDK:
 }
 ```
 
-For table-specific lexical, semantic, or hybrid search, build a validated
+For advanced caller-supplied semantic routing, build a validated
 `VectorSearchQuery`. The helper accepts Python snake_case arguments and emits the
 Cloud API's camelCase wire fields:
 
@@ -792,8 +881,8 @@ validation are available on `AsyncQueryBuilder`.
 Condition forms are exported as `approximate_search`, `hnsw_candidates`, and
 `approximate_candidates`. Use them only as the sole condition, for example
 `.where(approximate_search("storm", max_candidates=250))`. Database-wide
-`db.search(...)` remains the text-only API because the `ALL` route performs its own
-bounded lexical fan-out.
+`db.search(...)` accepts the same high-level mode, match, score, and candidate
+options as a table builder.
 
 ---
 
@@ -1086,7 +1175,7 @@ except (OnyxConfigError, OnyxHTTPError) as err:
 
 A typical release flow for this repository:
 
-1. Update the version in `onyx_database/_version.py` (or use your preferred versioning tool).
+1. Update the project version in `pyproject.toml`.
 2. Build: `python -m build`
 3. Publish: `twine upload dist/*`
 
