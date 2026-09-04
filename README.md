@@ -148,7 +148,7 @@ Set the following:
 - `ONYX_DEFAULT_MODEL` (defaults to `onyx`)
 - `ONYX_DATABASE_API_KEY`
 - `ONYX_DATABASE_API_SECRET`
-- `ONYX_DATABASE_WIRE_FORMAT` (`json` by default; set `msgpack` to opt in)
+- `ONYX_DATABASE_WIRE_FORMAT` (`msgpack` by default; set `json` to opt out)
 
 ```py
 from onyx_database import onyx
@@ -180,17 +180,17 @@ db = onyx.init(
 - `response_logging_enabled` logs HTTP responses and JSON bodies.
 - Setting `ONYX_DEBUG=true` enables both request/response logging and also logs which credential source was used.
 
-#### Optional MessagePack entity transport
+#### MessagePack entity transport
 
-JSON remains the default. To reduce entity request and response sizes, opt in to the
-MessagePack v1 wire profile when initializing either the sync or async client:
+The MessagePack v1 wire profile is the default for entity requests and responses.
+To use JSON instead, opt out when initializing either the sync or async client:
 
 ```py
 from onyx_database import WireFormat, onyx
 
 db = onyx.init(
     database_id="YOUR_DATABASE_ID",
-    wire_format=WireFormat.MESSAGE_PACK,  # "msgpack" also works
+    wire_format=WireFormat.JSON,  # "json" also works
 )
 ```
 

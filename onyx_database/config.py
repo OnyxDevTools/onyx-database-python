@@ -31,7 +31,7 @@ class WireFormat(str, Enum):
     def parse(cls, value: Any) -> "WireFormat":
         if isinstance(value, cls):
             return value
-        normalized = str(value or cls.JSON.value).strip().lower().replace("_", "").replace("-", "")
+        normalized = str(value or cls.MESSAGE_PACK.value).strip().lower().replace("_", "").replace("-", "")
         if normalized == "json":
             return cls.JSON
         if normalized in {"msgpack", "messagepack"}:
@@ -169,7 +169,7 @@ class ResolvedConfig:
     request_timeout_seconds: Optional[float]
     max_retries: Optional[int]
     retry_backoff_seconds: Optional[float]
-    wire_format: WireFormat = WireFormat.JSON
+    wire_format: WireFormat = WireFormat.MESSAGE_PACK
 
 
 def clear_config_cache() -> None:

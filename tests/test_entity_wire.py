@@ -174,7 +174,7 @@ class EntityWireTransportTests(unittest.TestCase):
             http.request("PUT", "/data/db/query/update/User", {"updates": []}, wire_format="msgpack")
         self.assertEqual(context.exception.data["error"]["message"], "bad query")
 
-    def test_json_remains_the_transport_default(self):
+    def test_low_level_http_remains_json_without_entity_wire_selection(self):
         http = RecordingHttp([(200, "OK", {"Content-Type": "application/json"}, b'{"ok":true}')])
 
         result = http.request("PUT", "/schemas/db", {"name": "schema"})
@@ -204,29 +204,30 @@ class EntityWireTransportTests(unittest.TestCase):
         asyncio.run(run())
 
 
-class EntityRouteOptInTests(unittest.TestCase):
+class EntityRouteWireFormatTests(unittest.TestCase):
     def setUp(self):
         clear_config_cache()
 
     def tearDown(self):
         clear_config_cache()
 
-    def test_config_defaults_to_json_and_accepts_both_messagepack_spellings(self):
+    def test_config_defaults_to_messagepack_and_accepts_json_opt_out(self):
         base = {"database_id": "db", "api_key": "key", "api_secret": "secret"}
-        self.assertIs(resolve_config(base).wire_format, WireFormat.JSON)
+        self.assertIs(resolve_config(base).wire_format, WireFormat.MESSAGE_PACK)
+        clear_config_cache()
+        self.assertIs(resolve_config({**base, "wireFormat": "json"}).wire_format, WireFormat.JSON)
         clear_config_cache()
         self.assertIs(resolve_config({**base, "wireFormat": "message-pack"}).wire_format, WireFormat.MESSAGE_PACK)
         clear_config_cache()
         self.assertIs(resolve_config({**base, "wire_format": WireFormat.MESSAGE_PACK}).wire_format, WireFormat.MESSAGE_PACK)
 
-    def test_sync_entity_routes_opt_in_but_documents_remain_json(self):
+    def test_sync_entity_routes_default_to_messagepack_but_documents_remain_json(self):
         db = OnyxDatabase(
             {
                 "base_url": "https://api.example.com",
                 "database_id": "db",
                 "api_key": "key",
                 "api_secret": "secret",
-                "wire_format": "msgpack",
             }
         )
 
@@ -543,14 +544,13 @@ class EntityRouteOptInTests(unittest.TestCase):
         self.assertEqual(1, len(http.requests))
         self.assertEqual("POST", http.requests[0][0])
 
-    def test_async_entity_route_opts_in(self):
+    def test_async_entity_route_defaults_to_messagepack(self):
         db = OnyxDatabaseAsync(
             {
                 "base_url": "https://api.example.com",
                 "database_id": "db",
                 "api_key": "key",
                 "api_secret": "secret",
-                "wire_format": "msgpack",
             }
         )
 

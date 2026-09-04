@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.5.1 - 2026-09-03
+
+- Made MessagePack v1 the default transport for entity CRUD, query, and change
+  streams. JSON remains available as an explicit opt-out and remains the wire
+  format for documents, schemas, secrets, and AI APIs.
+
 ## 2.5.0 - 2026-08-29
 
 - Added typed schema definitions for searchable entities, including the
