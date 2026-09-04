@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Allow one bounded `CANDIDATES` route to compose with ordinary `AND` predicates
+  in either order across sync and async builders. `OR`, duplicate candidates,
+  mutations, and live streams remain rejected.
+- Make `.where(approximate_candidates(...)).and_(...)` the canonical form,
+  matching ordinary condition helpers. The builder-level method remains as a
+  compatibility shortcut.
+
 ## 2.5.1 - 2026-09-03
 
 - Made MessagePack v1 the default transport for entity CRUD, query, and change

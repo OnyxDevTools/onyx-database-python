@@ -9,6 +9,8 @@ from .query_builder import (
     _flatten_strings,
     _normalize_condition,
     _read_only_search_operator,
+    _SOLE_ROOT_CANDIDATE_OPERATORS,
+    _validate_candidate_composition,
     _validate_search_composition,
 )
 from .query_results_async import AsyncQueryResults
@@ -41,7 +43,7 @@ class AsyncQueryBuilder:
         self._candidate_root_operator: Optional[str] = None
 
     def _require_composable_root(self):
-        if self._candidate_root_operator is not None:
+        if self._candidate_root_operator in _SOLE_ROOT_CANDIDATE_OPERATORS:
             raise ValueError(f"{self._candidate_root_operator} must be the sole root criterion")
 
     def _require_mutable_root(self, operation: str):
@@ -55,8 +57,16 @@ class AsyncQueryBuilder:
         operator = _candidate_operator(condition)
         if operator is None:
             return False
-        if self._conditions is not None or condition.get("conditionType") != "SingleCondition":
+        if operator in _SOLE_ROOT_CANDIDATE_OPERATORS and (
+            self._conditions is not None
+            or condition.get("conditionType") != "SingleCondition"
+        ):
             raise ValueError(f"{operator} must be the sole root criterion")
+        if operator == "CANDIDATES" and (
+            self._conditions is not None
+            or condition.get("conditionType") != "SingleCondition"
+        ):
+            return False
         self._conditions = condition
         self._candidate_root_operator = operator
         return True
@@ -127,6 +137,7 @@ class AsyncQueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_candidate_composition(self._conditions, cond, "AND")
         _validate_search_composition(self._conditions, cond)
         if not self._conditions:
             self._conditions = cond
@@ -197,6 +208,7 @@ class AsyncQueryBuilder:
         )
         if not cond:
             return self
+        _validate_candidate_composition(self._conditions, cond, "AND")
         _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
@@ -248,15 +260,11 @@ class AsyncQueryBuilder:
         value_or_values: Any,
         max_candidates: int = 1_000,
     ):
-        """Seed bounded ordinary-index admission as the sole root criterion."""
+        """Compatibility shortcut; prefer ``where(approximate_candidates(...))``."""
 
-        if self._conditions is not None:
-            raise ValueError("CANDIDATES must be the sole root criterion")
-        self._conditions = _normalize_condition(
+        return self.and_(
             approximate_candidates_condition(attribute, value_or_values, max_candidates)
         )
-        self._candidate_root_operator = "CANDIDATES"
-        return self
 
     def and_(self, condition):
         self._require_composable_root()
@@ -265,6 +273,7 @@ class AsyncQueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_candidate_composition(self._conditions, cond, "AND")
         _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
@@ -288,6 +297,7 @@ class AsyncQueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_candidate_composition(self._conditions, cond, "OR")
         _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "OR":
             self._conditions["conditions"].append(cond)

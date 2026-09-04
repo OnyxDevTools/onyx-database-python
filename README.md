@@ -530,9 +530,10 @@ semantic = (
 )
 ```
 
-`CANDIDATES`, `SEARCH_CANDIDATES`, and `HNSW_CANDIDATES` must be the sole root
-criterion. Candidate results are approximate; exactly rerank them when the
-full-precision vectors are available.
+`SEARCH_CANDIDATES` and `HNSW_CANDIDATES` must be the sole root criterion. One
+`CANDIDATES` condition can be combined with ordinary predicates through `and_`
+in either call order. Candidate results are approximate; exactly rerank them
+when the full-precision vectors are available.
 
 Aggregate / string helpers for `select()` expressions:
 
@@ -830,7 +831,7 @@ Three explicit candidate APIs provide physically bounded admission for downstrea
 reranking:
 
 ```py
-from onyx_database import hnsw_search_query
+from onyx_database import approximate_candidates, eq, hnsw_search_query
 
 # Bounded lexical admission from a SEARCHABLE table.
 lexical = (
@@ -865,24 +866,29 @@ neighbors = (
 routed = (
     db.from_table(tables.Document)
       .in_partition("corpus-a")
-      .approximate_candidates("tenantId", ["tenant-a", "tenant-b"], 200)
+      .where(approximate_candidates("tenantId", ["tenant-a", "tenant-b"], 200))
+      .and_(eq("active", True))
       .list()
 )
 ```
 
-`SEARCH_CANDIDATES`, `HNSW_CANDIDATES`, and `CANDIDATES` are positive, read-only,
-sole-root criteria. The builders reject attempts to combine them with `where`,
-`and_`, `or_`, or `search` in either call order. Partitioned tables require one
-concrete partition. HNSW vectors contain `1..16384` finite values with a non-zero
-norm; `maxCandidates` is `1..5000`, `efSearch` is at least `maxCandidates` and at
-most `20000`, and `minScore` is optional in `[-1, 1]`. The same methods and wire
-validation are available on `AsyncQueryBuilder`.
+All three admission operators are positive and read-only. `SEARCH_CANDIDATES` and
+`HNSW_CANDIDATES` remain sole-root criteria. A query may contain one `CANDIDATES`
+condition in a non-negated `AND` tree; the server admits the bounded route once and
+evaluates the other predicates only over that set. `or_` composition is rejected.
+Partitioned tables require one concrete partition. HNSW vectors contain `1..16384`
+finite values with a non-zero norm; `maxCandidates` is `1..5000`, `efSearch` is at
+least `maxCandidates` and at most `20000`, and `minScore` is optional in `[-1, 1]`.
+The same methods and wire validation are available on `AsyncQueryBuilder`.
 
 Condition forms are exported as `approximate_search`, `hnsw_candidates`, and
-`approximate_candidates`. Use them only as the sole condition, for example
-`.where(approximate_search("storm", max_candidates=250))`. Database-wide
-`db.search(...)` accepts the same high-level mode, match, score, and candidate
-options as a table builder.
+`approximate_candidates`. Use them through `where(...)`, matching ordinary
+operators such as `eq`; for example
+`.where(approximate_candidates("tenantId", values, 200)).and_(eq("active", True))`.
+The first two must remain sole conditions. The builder-level
+`.approximate_candidates(...)` method is retained only as a compatibility
+shortcut. Database-wide `db.search(...)` accepts the same high-level mode,
+match, score, and candidate options as a table builder.
 
 ---
 

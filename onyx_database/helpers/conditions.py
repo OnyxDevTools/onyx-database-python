@@ -266,7 +266,7 @@ def approximate_candidates(
     value_or_values: Any,
     max_candidates: int = DEFAULT_APPROXIMATE_INDEX_CANDIDATES,
 ) -> Condition:
-    """Create a sole-root bounded ordinary-index candidate condition."""
+    """Create a bounded ordinary-index condition composable through ``AND``."""
 
     if not isinstance(attribute, str) or not attribute.strip():
         raise TypeError("candidate attribute must not be blank")

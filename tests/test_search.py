@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock
 
 from onyx_database.helpers.conditions import (
+    approximate_candidates,
     is_null,
     not_between,
     not_null,
@@ -331,8 +332,8 @@ class SearchTests(unittest.TestCase):
             QueryBuilder(DummyExec(), table="Table").hnsw_candidates(
                 {"calibrationId": 1, "vector": [1]}
             ),
-            QueryBuilder(DummyExec(), table="Table").approximate_candidates(
-                "tenantId", "tenant-a"
+            QueryBuilder(DummyExec(), table="Table").where(
+                approximate_candidates("tenantId", "tenant-a")
             ),
         ]
 

@@ -391,7 +391,7 @@ class CandidateSearchBuilderTests(unittest.TestCase):
         )
         indexed = (
             QueryBuilder(DummyExec(), table="Document")
-            .approximate_candidates("tenantId", ["a", "b"], 8)
+            .where(approximate_candidates("tenantId", ["a", "b"], 8))
             .to_query_object()["conditions"]["criteria"]
         )
 
@@ -437,7 +437,7 @@ class CandidateSearchBuilderTests(unittest.TestCase):
         )
         indexed = (
             AsyncQueryBuilder(DummyExec(), table="Document")
-            .approximate_candidates("tenantId", "a", 8)
+            .where(approximate_candidates("tenantId", "a", 8))
             .to_query_object()["conditions"]["criteria"]
         )
 
@@ -448,13 +448,12 @@ class CandidateSearchBuilderTests(unittest.TestCase):
         self.assertEqual(indexed["operator"], "CANDIDATES")
         self.assertEqual(indexed["value"], {"values": ["a"], "maxCandidates": 8})
 
-    def test_candidate_builder_methods_reject_an_existing_root(self):
+    def test_lexical_and_hnsw_candidate_builders_reject_an_existing_root(self):
         builders = [
             lambda builder: builder.approximate_search("text"),
             lambda builder: builder.hnsw_candidates(
                 {"calibrationId": 1, "vector": [1]}
             ),
-            lambda builder: builder.approximate_candidates("tenantId", "a"),
         ]
 
         for builder_call in builders:
@@ -466,13 +465,12 @@ class CandidateSearchBuilderTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         builder_call(builder)
 
-    def test_candidate_roots_reject_later_condition_composition(self):
+    def test_lexical_and_hnsw_candidate_roots_reject_later_composition(self):
         candidate_calls = [
             lambda builder: builder.approximate_search("text"),
             lambda builder: builder.hnsw_candidates(
                 {"calibrationId": 1, "vector": [1]}
             ),
-            lambda builder: builder.approximate_candidates("tenantId", "a"),
         ]
         compose_calls = [
             lambda builder: builder.where(
@@ -501,13 +499,78 @@ class CandidateSearchBuilderTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             compose_call(builder)
 
+    def test_index_candidates_compose_with_and_in_either_order_but_not_or(self):
+        exact = {"field": "active", "operator": "EQUAL", "value": True}
+        candidate = approximate_candidates("tenantId", ["a", "b"], 8)
+
+        for builder_type in (QueryBuilder, AsyncQueryBuilder):
+            with self.subTest(builder=builder_type.__name__):
+                filter_first = (
+                    builder_type(DummyExec(), table="Document")
+                    .where(exact)
+                    .and_(candidate)
+                    .to_query_object()["conditions"]
+                )
+                candidate_first = (
+                    builder_type(DummyExec(), table="Document")
+                    .where(candidate)
+                    .and_(exact)
+                    .to_query_object()["conditions"]
+                )
+
+                self.assertEqual(filter_first["operator"], "AND")
+                self.assertEqual(candidate_first["operator"], "AND")
+                self.assertEqual(
+                    {
+                        child["criteria"]["operator"]
+                        for child in filter_first["conditions"]
+                    },
+                    {"EQUAL", "CANDIDATES"},
+                )
+
+                nested_and = {
+                    "conditionType": "CompoundCondition",
+                    "operator": "AND",
+                    "conditions": [exact, candidate],
+                }
+                builder_type(DummyExec(), table="Document").where(nested_and)
+
+                with self.assertRaisesRegex(ValueError, "non-negated AND"):
+                    builder_type(DummyExec(), table="Document").where(exact).or_(
+                        candidate
+                    )
+                with self.assertRaisesRegex(ValueError, "non-negated AND"):
+                    builder_type(DummyExec(), table="Document").where(
+                        {
+                            "conditionType": "CompoundCondition",
+                            "operator": "OR",
+                            "conditions": [exact, candidate],
+                        }
+                    )
+                with self.assertRaisesRegex(ValueError, "only one CANDIDATES"):
+                    (
+                        builder_type(DummyExec(), table="Document")
+                        .where(approximate_candidates("tenantId", "a"))
+                        .and_(candidate)
+                    )
+
+    def test_builder_level_index_candidate_shortcuts_remain_compatible(self):
+        for builder_type in (QueryBuilder, AsyncQueryBuilder):
+            with self.subTest(builder=builder_type.__name__):
+                criteria = (
+                    builder_type(DummyExec(), table="Document")
+                    .approximate_candidates("tenantId", ["a", "b"], 8)
+                    .to_query_object()["conditions"]["criteria"]
+                )
+                self.assertEqual(criteria["operator"], "CANDIDATES")
+
     def test_candidate_roots_reject_update_and_delete_execution(self):
         candidate_calls = [
             lambda builder: builder.approximate_search("text"),
             lambda builder: builder.hnsw_candidates(
                 {"calibrationId": 1, "vector": [1]}
             ),
-            lambda builder: builder.approximate_candidates("tenantId", "a"),
+            lambda builder: builder.where(approximate_candidates("tenantId", "a")),
         ]
 
         for candidate_call in candidate_calls:

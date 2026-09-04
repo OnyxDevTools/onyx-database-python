@@ -13,7 +13,8 @@ from .helpers.conditions import (
     search as search_condition,
 )
 
-_CANDIDATE_OPERATORS = {"CANDIDATES", "SEARCH_CANDIDATES", "HNSW_CANDIDATES"}
+_SOLE_ROOT_CANDIDATE_OPERATORS = {"SEARCH_CANDIDATES", "HNSW_CANDIDATES"}
+_CANDIDATE_OPERATORS = {*_SOLE_ROOT_CANDIDATE_OPERATORS, "CANDIDATES"}
 _READ_ONLY_SEARCH_OPERATOR = "SEARCH"
 
 
@@ -92,6 +93,51 @@ def _read_only_search_operator(
     )
 
 
+def _is_conjunction(condition: Dict[str, Any]) -> bool:
+    if condition.get("conditionType") == "SingleCondition":
+        return True
+    return condition.get("operator") == "AND" and all(
+        isinstance(child, dict) and _is_conjunction(child)
+        for child in condition.get("conditions", [])
+    )
+
+
+def _validate_candidate_composition(
+    existing: Optional[Dict[str, Any]],
+    incoming: Dict[str, Any],
+    logical_operator: str = "AND",
+) -> None:
+    prospective = incoming if existing is None else {
+        "conditionType": "CompoundCondition",
+        "operator": logical_operator,
+        "conditions": [existing, incoming],
+    }
+    criteria = list(_iter_criteria(prospective))
+    sole_root_operator = next(
+        (
+            item.get("operator")
+            for item in criteria
+            if item.get("operator") in _SOLE_ROOT_CANDIDATE_OPERATORS
+        ),
+        None,
+    )
+    if (
+        sole_root_operator is not None
+        and prospective.get("conditionType") != "SingleCondition"
+    ):
+        raise ValueError(f"{sole_root_operator} must be the sole root criterion")
+
+    approximate_candidate_count = sum(
+        item.get("operator") == "CANDIDATES" for item in criteria
+    )
+    if approximate_candidate_count > 1:
+        raise ValueError("A query may contain only one CANDIDATES criterion")
+    if approximate_candidate_count == 1 and not _is_conjunction(prospective):
+        raise ValueError(
+            "CANDIDATES can be combined only with non-negated AND predicates"
+        )
+
+
 def _validate_search_composition(
     existing: Optional[Dict[str, Any]], incoming: Dict[str, Any]
 ) -> None:
@@ -138,7 +184,7 @@ class QueryBuilder:
         self._candidate_root_operator: Optional[str] = None
 
     def _require_composable_root(self):
-        if self._candidate_root_operator is not None:
+        if self._candidate_root_operator in _SOLE_ROOT_CANDIDATE_OPERATORS:
             raise ValueError(f"{self._candidate_root_operator} must be the sole root criterion")
 
     def _require_mutable_root(self, operation: str):
@@ -159,8 +205,16 @@ class QueryBuilder:
         operator = _candidate_operator(condition)
         if operator is None:
             return False
-        if self._conditions is not None or condition.get("conditionType") != "SingleCondition":
+        if operator in _SOLE_ROOT_CANDIDATE_OPERATORS and (
+            self._conditions is not None
+            or condition.get("conditionType") != "SingleCondition"
+        ):
             raise ValueError(f"{operator} must be the sole root criterion")
+        if operator == "CANDIDATES" and (
+            self._conditions is not None
+            or condition.get("conditionType") != "SingleCondition"
+        ):
+            return False
         self._conditions = condition
         self._candidate_root_operator = operator
         return True
@@ -231,6 +285,7 @@ class QueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_candidate_composition(self._conditions, cond, "AND")
         _validate_search_composition(self._conditions, cond)
         if not self._conditions:
             self._conditions = cond
@@ -301,6 +356,7 @@ class QueryBuilder:
         )
         if not cond:
             return self
+        _validate_candidate_composition(self._conditions, cond, "AND")
         _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
@@ -352,15 +408,11 @@ class QueryBuilder:
         value_or_values: Any,
         max_candidates: int = 1_000,
     ):
-        """Seed bounded ordinary-index admission as the sole root criterion."""
+        """Compatibility shortcut; prefer ``where(approximate_candidates(...))``."""
 
-        if self._conditions is not None:
-            raise ValueError("CANDIDATES must be the sole root criterion")
-        self._conditions = _normalize_condition(
+        return self.and_(
             approximate_candidates_condition(attribute, value_or_values, max_candidates)
         )
-        self._candidate_root_operator = "CANDIDATES"
-        return self
 
     def and_(self, condition):
         self._require_composable_root()
@@ -369,6 +421,7 @@ class QueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_candidate_composition(self._conditions, cond, "AND")
         _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "AND":
             self._conditions["conditions"].append(cond)
@@ -393,6 +446,7 @@ class QueryBuilder:
             return self
         if self._adopt_candidate_root(cond):
             return self
+        _validate_candidate_composition(self._conditions, cond, "OR")
         _validate_search_composition(self._conditions, cond)
         if self._conditions and self._conditions.get("conditionType") == "CompoundCondition" and self._conditions.get("operator") == "OR":
             self._conditions["conditions"].append(cond)
